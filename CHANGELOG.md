@@ -3,6 +3,19 @@
 本项目所有显著变更均记录于此文件。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [2.7.4] - 2026-10-06
+
+### 新增
+
+- **内置大模型网关（Kilo AI Gateway，免配置即用）**：默认接入 [Kilo AI Gateway](https://app.kilo.ai/)（`https://api.kilo.ai/api/gateway`，OpenAI 兼容）。其免费模型支持**匿名调用**（无需 API Key），因此大模型每日推荐兜底**开箱即用**，无需任何配置；需要更高质量或解除限流时，可填入自己的 Kilo Key 使用付费模型。
+- **保留完全自定义能力**：新增 `FNMUSIC_LLM_PROVIDER`（`kilo` 内置 / `custom` 自定义 OpenAI 兼容 / `none` 关闭）。填了 `FNMUSIC_LLM_BASE_URL` 即自动切自定义接入；也可显式指定接入方。所有键位 `.env` 热重载。
+- **管理台「高级 · 大模型」升级**：新增接入方下拉（内置 Kilo / 自定义 / 关闭）与「恢复内置默认」按钮；选择内置 Kilo 时自动灰化 Base URL / API Key 输入，自定义时才需填写，避免误填。
+- **安装向导默认使用内置 Kilo**：交互安装默认「启用大模型兜底推荐」，无需填任何密钥即可生效；也可在向导内选择自定义接入。命令行新增 `--llm-provider`，`--llm-base-url`/`--llm-api-key` 给了即视为自定义。
+
+### 变更
+
+- 大模型默认模型由 `gpt-4o-mini` 改为 `kilo-auto/free`（内置网关自动路由到最佳免费模型）；旧装机若仍配置了 OpenAI 原生模型名（如 `gpt-4o-mini`），在内置网关下会自动回落为 `kilo-auto/free`，避免请求 404。
+
 ## [2.7.3] - 2026-10-06
 
 ### 新增

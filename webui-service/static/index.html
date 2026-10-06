@@ -245,10 +245,20 @@
       <section class="page" id="page-llm">
         <h2>高级 · 大模型</h2>
         <div class="card">
-          <p class="hint">配置 OpenAI 兼容接口后，非网易音源也可获得每日推荐。留空即禁用。保存后代理热重载生效。</p>
-          <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="https://api.example.com/v1"></label>
-          <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="sk-…"></label>
-          <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="gpt-4o-mini"></label>
+          <p class="hint">大模型用于每日推荐的智能兜底。默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
+          <label class="field"><span>接入方</span>
+            <select class="input" id="llm-provider">
+              <option value="kilo">内置 Kilo AI Gateway（推荐，免配置）</option>
+              <option value="custom">自定义 OpenAI 兼容接口</option>
+              <option value="none">关闭大模型</option>
+            </select>
+          </label>
+          <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="留空使用内置 Kilo；自定义时如 https://api.example.com/v1"></label>
+          <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="内置 Kilo 免费模型可留空；自定义必填"></label>
+          <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="kilo-auto/free，或自定义 provider/model"></label>
+          <div class="chart-actions">
+            <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
+          </div>
         </div>
       </section>
     </main>

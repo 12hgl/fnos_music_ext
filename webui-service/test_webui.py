@@ -97,7 +97,8 @@ def test_config_view_merges_defaults(env_file):
         rj = r.json()
         assert rj["values"]["FNMUSIC_NETEASE_ENABLED"] == "true"
         assert rj["values"]["LX_SOURCE_URL"] == ""
-        assert rj["values"]["FNMUSIC_LLM_MODEL"] == "gpt-4o-mini"  # 缺省补齐
+        assert rj["values"]["FNMUSIC_LLM_MODEL"] == "kilo-auto/free"  # 缺省补齐（内置 Kilo）
+        assert rj["values"]["FNMUSIC_LLM_PROVIDER"] == "kilo"  # 默认内置接入方
         assert "CUSTOM_KEY" not in rj["values"]  # 非管理键不进视图
         assert rj["schema"]["FNMUSIC_QUALITY_MODE"]["values"] == ["high", "balanced", "smooth"]
         # 分类歌单缺省补齐（.env 未写该键时给默认分类与曲量）

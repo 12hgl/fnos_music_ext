@@ -22,8 +22,9 @@ set -euo pipefail
 #   ./install.sh --sources musicdl --sources=2,4 形式同下
 #   ./install.sh --sources musicbox
 #   ./install.sh --sources lxmusic --lx-source-url 'https://example.com/lx.js'
-#   ./install.sh --non-interactive --sources musicdl --webui \
-#       --enable-recommend --llm-base-url https://api.example.com/v1 --llm-api-key '***'
+#   ./install.sh --non-interactive --sources musicdl --webui --enable-recommend
+#       # 默认用内置 Kilo 大模型（免配置）；如需自定义：
+#       --llm-base-url https://api.example.com/v1 --llm-api-key '***'
 # ==============================================================================
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,11 +39,15 @@ ENABLE_RECOMMEND=""
 # 仅显式 --disable-recommend 才清除 .env 中已保存的大模型配置；
 # 向导答 N / 未开启推荐一律保留既有密钥，避免重装后被迫重新填入。
 LLM_CLEAR=0
+# 大模型接入方：kilo=内置 Kilo AI Gateway（免配置）| custom=自定义 OpenAI 兼容 | none=关闭
+LLM_PROVIDER=""
 LLM_BASE_URL=""
 LLM_API_KEY=""
 LLM_MODEL=""
 LLM_MODEL_FROM_CLI=0
-DEFAULT_LLM_MODEL="gpt-4o-mini"
+# 内置大模型默认：Kilo AI Gateway 免配置，免费模型可匿名调用
+DEFAULT_LLM_PROVIDER="kilo"
+DEFAULT_LLM_MODEL="kilo-auto/free"
 RUN_EXTEND=0
 # --adopt: explicitly migrate the machine-wide deployment to this checkout
 # (the deployment registry otherwise refuses a second live checkout).
@@ -101,12 +106,13 @@ usage() {
   --webui                安装管理 Web UI（仅本机 8774；由已登录的飞牛管理员打开）
   --no-webui             不安装管理 Web UI（非交互默认）
   --non-interactive      无交互，缺省值：音源=musicdl，不装 WebUI，不开启每日推荐
-  --enable-recommend     开启大模型兜底推荐（需同时给 base-url 与 api-key；
-                        仅当网易音源未启用时生效，平时每日推荐走音源原生推荐）
+  --enable-recommend     开启大模型兜底推荐（默认用内置 Kilo，免配置）
   --disable-recommend    明确关闭大模型兜底，并清除 .env 中已保存的 LLM 配置
-  --llm-base-url URL     OpenAI 兼容 Base URL，例如 https://api.openai.com/v1
-  --llm-api-key KEY      API Key（不会回显；请勿提交到 git）
-  --llm-model NAME       模型名；交互模式可自动拉取列表选择；非交互缺省 gpt-4o-mini
+  --llm-provider P       接入方：kilo=内置 Kilo AI Gateway（默认，免配置）；
+                         custom=自定义 OpenAI 兼容；none=关闭
+  --llm-base-url URL     自定义接入的 OpenAI 兼容 Base URL（给了即视为 custom）
+  --llm-api-key KEY      API Key（不会回显；请勿提交到 git；内置 Kilo 免费模型可留空）
+  --llm-model NAME       模型名；交互自定义接入时可自动拉取列表选择；缺省 kilo-auto/free
   --extend               安装完成后立即执行 ./extend.sh
   --adopt                把本机部署迁移到当前目录（部署登记或代理 unit 属于其他
                         目录时使用；会跳过跨目录检查并重新登记）
@@ -441,6 +447,11 @@ while [ $# -gt 0 ]; do
         --non-interactive) NON_INTERACTIVE=1; shift ;;
         --enable-recommend) ENABLE_RECOMMEND="yes"; shift ;;
         --disable-recommend) ENABLE_RECOMMEND="no"; LLM_CLEAR=1; shift ;;
+        --llm-provider)
+            [ $# -ge 2 ] || { log_err "--llm-provider 需要参数（kilo/custom/none）"; exit 1; }
+            LLM_PROVIDER="${2}"
+            [ "${LLM_PROVIDER}" = "none" ] && { ENABLE_RECOMMEND="no"; LLM_CLEAR=1; }
+            shift 2 ;;
         --llm-base-url)
             [ $# -ge 2 ] || { log_err "--llm-base-url 需要 URL 参数"; exit 1; }
             LLM_BASE_URL="${2}"; shift 2 ;;
@@ -776,32 +787,55 @@ if [ "${NON_INTERACTIVE}" -eq 0 ]; then
         esac
     fi
     if [ -z "${ENABLE_RECOMMEND}" ]; then
-        echo "大模型兜底推荐（可选选填）:"
-        echo "  每日推荐默认采信音源原生推荐（网易每日推荐/榜单 + 洛雪免登录榜单），"
-        echo "  大模型（OpenAI 兼容，如 DeepSeek/GPT/Qwen）仅在网易音源未启用时作为兜底。"
-        rec_choice="$(prompt "是否配置大模型兜底（需 OpenAI 兼容 API Key）? [y/N]" "N")"
+        echo "大模型兜底推荐:"
+        echo "  每日推荐优先采信音源原生推荐（网易每日推荐/榜单 + 洛雪榜单），"
+        echo "  不足时用大模型智能补齐。已内置 Kilo AI Gateway（https://app.kilo.ai/），"
+        echo "  免费模型可匿名调用，无需任何配置即可使用；也可改为自定义 OpenAI 兼容接口。"
+        rec_choice="$(prompt "是否启用大模型兜底推荐? [Y/n]" "Y")"
         case "${rec_choice}" in
-            y|Y|yes|YES) ENABLE_RECOMMEND="yes" ;;
-            *) ENABLE_RECOMMEND="no" ;;
+            n|N|no|NO) ENABLE_RECOMMEND="no" ;;
+            *) ENABLE_RECOMMEND="yes" ;;
         esac
     fi
     if [ "${ENABLE_RECOMMEND}" = "yes" ]; then
-        [ -z "${LLM_BASE_URL}" ] && LLM_BASE_URL="$(prompt "LLM Base URL（OpenAI 兼容，例如 https://api.openai.com/v1）")"
-        if [ -z "${LLM_API_KEY}" ]; then
-            read -r -s -p "LLM API Key（输入不回显，留空则不开启推荐）: " LLM_API_KEY || true
-            echo
+        # 命令行已指定自定义接入（给了 URL/Key）则直接用，否则交互询问接入方式
+        if [ -z "${LLM_PROVIDER}" ]; then
+            if [ -n "${LLM_BASE_URL}" ] || [ -n "${LLM_API_KEY}" ]; then
+                LLM_PROVIDER="custom"
+            else
+                acc_choice="$(prompt "接入方式: 1) 内置 Kilo（推荐，免配置）  2) 自定义 OpenAI 兼容接口 [1/2]" "1")"
+                case "${acc_choice}" in
+                    2|2\)*|custom) LLM_PROVIDER="custom" ;;
+                    *) LLM_PROVIDER="kilo" ;;
+                esac
+            fi
         fi
-        if [ -z "${LLM_BASE_URL}" ] || [ -z "${LLM_API_KEY}" ]; then
-            log_warn "未同时提供 Base URL 与 API Key，本次不开启推荐（.env 中已保存的 LLM 配置保持不变）。"
-            ENABLE_RECOMMEND="no"
+        if [ "${LLM_PROVIDER}" = "custom" ]; then
+            [ -z "${LLM_BASE_URL}" ] && LLM_BASE_URL="$(prompt "LLM Base URL（OpenAI 兼容，例如 https://api.openai.com/v1）")"
+            if [ -z "${LLM_API_KEY}" ]; then
+                read -r -s -p "LLM API Key（输入不回显，留空则不开启推荐）: " LLM_API_KEY || true
+                echo
+            fi
+            if [ -z "${LLM_BASE_URL}" ] || [ -z "${LLM_API_KEY}" ]; then
+                log_warn "未同时提供 Base URL 与 API Key，本次不开启推荐（.env 中已保存的 LLM 配置保持不变）。"
+                ENABLE_RECOMMEND="no"
+                LLM_PROVIDER=""
+                LLM_BASE_URL=""
+                LLM_API_KEY=""
+                LLM_MODEL=""
+            elif [ "${LLM_MODEL_FROM_CLI}" -eq 1 ] && [ -n "${LLM_MODEL}" ]; then
+                log_info "使用命令行指定的模型: ${LLM_MODEL}"
+            else
+                # 仅在自定义接入且已有 URL/Key 时拉取模型列表并让用户选择
+                prompt_llm_model "${LLM_BASE_URL}" "${LLM_API_KEY}"
+            fi
+        else
+            # 内置 Kilo：免配置，免费模型自动路由
+            LLM_PROVIDER="kilo"
             LLM_BASE_URL=""
             LLM_API_KEY=""
-            LLM_MODEL=""
-        elif [ "${LLM_MODEL_FROM_CLI}" -eq 1 ] && [ -n "${LLM_MODEL}" ]; then
-            log_info "使用命令行指定的模型: ${LLM_MODEL}"
-        else
-            # 仅在开启推荐且已有 URL/Key 时拉取模型列表并让用户选择
-            prompt_llm_model "${LLM_BASE_URL}" "${LLM_API_KEY}"
+            [ -z "${LLM_MODEL}" ] && LLM_MODEL="${DEFAULT_LLM_MODEL}"
+            log_info "大模型使用内置 Kilo AI Gateway（免配置），模型: ${LLM_MODEL}"
         fi
     fi
     ext_choice="$(prompt "安装配置完成，是否立即执行 extend.sh 启用扩展? [Y/n]" "Y")"
@@ -813,16 +847,22 @@ else
     SOURCES_RAW="${SOURCES_RAW:-musicdl}"
     WEBUI_CHOICE="${WEBUI_CHOICE:-no}"
     if [ "${ENABLE_RECOMMEND}" = "yes" ]; then
-        if [ -z "${LLM_BASE_URL}" ] || [ -z "${LLM_API_KEY}" ]; then
-            log_err "--enable-recommend 需要同时提供 --llm-base-url 与 --llm-api-key"
+        # 非交互：默认内置 Kilo（免配置）；给了 URL/Key 即视为自定义接入
+        if [ -z "${LLM_PROVIDER}" ]; then
+            if [ -n "${LLM_BASE_URL}" ] || [ -n "${LLM_API_KEY}" ]; then
+                LLM_PROVIDER="custom"
+            else
+                LLM_PROVIDER="${DEFAULT_LLM_PROVIDER}"
+            fi
+        fi
+        if [ "${LLM_PROVIDER}" = "custom" ] && { [ -z "${LLM_BASE_URL}" ] || [ -z "${LLM_API_KEY}" ]; }; then
+            log_err "自定义大模型接入需要同时提供 --llm-base-url 与 --llm-api-key"
             exit 1
         fi
         LLM_MODEL="${LLM_MODEL:-${DEFAULT_LLM_MODEL}}"
     else
         ENABLE_RECOMMEND="no"
-        LLM_BASE_URL=""
-        LLM_API_KEY=""
-        LLM_MODEL=""
+        [ -z "${LLM_PROVIDER}" ] && LLM_PROVIDER="none"
     fi
 fi
 
@@ -983,11 +1023,13 @@ ENV_DESIRED="$(mktemp)"
     echo "FNMUSIC_DEPLOY_MODE='docker'"
     echo "FNMUSIC_PIP_INDEX='$(dotenv_escape "${PIP_INDEX}")'"
     if [ "${ENABLE_RECOMMEND}" = "yes" ]; then
+        echo "FNMUSIC_LLM_PROVIDER='$(dotenv_escape "${LLM_PROVIDER}")'"
         echo "FNMUSIC_LLM_BASE_URL='$(dotenv_escape "${LLM_BASE_URL}")'"
         echo "FNMUSIC_LLM_API_KEY='$(dotenv_escape "${LLM_API_KEY}")'"
         echo "FNMUSIC_LLM_MODEL='$(dotenv_escape "${LLM_MODEL}")'"
     elif [ "${LLM_CLEAR}" -eq 1 ]; then
         # 仅显式 --disable-recommend 才清除已保存的 LLM 配置
+        echo "FNMUSIC_LLM_PROVIDER='none'"
         echo "FNMUSIC_LLM_BASE_URL=''"
         echo "FNMUSIC_LLM_API_KEY=''"
         echo "FNMUSIC_LLM_MODEL=''"
@@ -1006,12 +1048,11 @@ ENV_EXPLICIT="FNMUSIC_MUSICDL_ENABLED,FNMUSIC_NETEASE_ENABLED,FNMUSIC_NETEASEFRE
 [ "${LX_EXPLICIT}" -eq 1 ] && ENV_EXPLICIT="${ENV_EXPLICIT},LX_SOURCES"
 [ "${MDL_EXPLICIT}" -eq 1 ] && ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_ONLINE_SOURCES,MUSICDL_SOURCES"
 if [ "${ENABLE_RECOMMEND}" = "yes" ]; then
-    [ -n "${LLM_BASE_URL}" ] && ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_LLM_BASE_URL"
-    [ -n "${LLM_API_KEY}" ] && ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_LLM_API_KEY"
-    [ -n "${LLM_MODEL}" ] && ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_LLM_MODEL"
+    # 接入方与模型始终采用本次选择（切到内置 Kilo 时用空 URL 覆盖已保存的自定义配置）
+    ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_LLM_PROVIDER,FNMUSIC_LLM_BASE_URL,FNMUSIC_LLM_API_KEY,FNMUSIC_LLM_MODEL"
 elif [ "${LLM_CLEAR}" -eq 1 ]; then
     # 显式关闭推荐：以空值覆盖，清除已保存的 LLM 配置
-    ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_LLM_BASE_URL,FNMUSIC_LLM_API_KEY,FNMUSIC_LLM_MODEL"
+    ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_LLM_PROVIDER,FNMUSIC_LLM_BASE_URL,FNMUSIC_LLM_API_KEY,FNMUSIC_LLM_MODEL"
 fi
 # 未开启也未显式关闭：不加入 ENV_EXPLICIT，env_merge 保留旧 Key
 

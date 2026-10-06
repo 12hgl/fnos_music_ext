@@ -162,8 +162,11 @@ CONF = {
     "plt_dir": os.environ.get(
         "FNMUSIC_PLT_DIR", os.path.join(_HOME, "playlist_tracks")
     ),
-    "llm_base_url": (os.environ.get("FNMUSIC_LLM_BASE_URL") or "").strip().rstrip("/"),
-    "llm_model": (os.environ.get("FNMUSIC_LLM_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini",
+    # 大模型：内置 Kilo AI Gateway（免配置，免费模型可匿名调用）；填 FNMUSIC_LLM_BASE_URL
+    # 即切自定义 OpenAI 兼容接入。这里记录生效值，供 /healthz 等观测
+    "llm_base_url": dailyrec.llm_base_url(),
+    "llm_model": dailyrec.llm_model(),
+    "llm_provider": dailyrec.llm_provider(),
     # v2.0.0：音质模式 high|balanced|smooth（档序见 quality_order）；
     # 推荐双开关 / 封面补全 / .env 热重载默认开，均可被 .env 覆盖
     "quality_mode": (os.environ.get("FNMUSIC_QUALITY_MODE") or "high").strip().lower(),
@@ -513,6 +516,8 @@ _ENV_WATCH_KEYS: dict[str, tuple[str, str]] = {
     "FNMUSIC_LLM_BASE_URL": ("llm_base_url", "llm_url"),
     "FNMUSIC_LLM_API_KEY": ("", "str"),
     "FNMUSIC_LLM_MODEL": ("llm_model", "str"),
+    # 内置/自定义切换：kilo（默认，内置免配置）/ custom / none；热重载即时生效
+    "FNMUSIC_LLM_PROVIDER": ("", "str"),
     "FNMUSIC_SEARCH_TIMEOUT": ("search_timeout", "seconds"),
     # issue #29：推荐构建预算/候选数/逐首校验运行期可调（recommend.py 动态读 os.environ）
     "FNMUSIC_RECOMMEND_BUDGET_S": ("", "str"),

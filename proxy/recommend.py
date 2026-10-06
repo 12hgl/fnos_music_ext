@@ -52,6 +52,17 @@ RECOMMEND_SIZE_DEFAULT = 200
 # 酷我文本封面 host：该“封面 URL”实为含图片链接的文本页，不能当直链用（app.py 引用同一常量）
 KW_TEXT_COVER_HOST = "artistpicserver.kuwo.cn"
 DEFAULT_MODEL = "gpt-4o-mini"
+# 内置大模型网关：Kilo AI Gateway（https://app.kilo.ai/，OpenAI 兼容）。
+# 免配置即可用于每日推荐兜底——其免费模型支持匿名调用（无需 API Key，
+# 约 200 次/小时/IP）；填入自己的 Key 可解除限流并使用付费模型。
+KILO_BASE_URL = "https://api.kilo.ai/api/gateway"
+KILO_MODEL = "kilo-auto/free"
+# 旧装机默认值（OpenAI 原生模型名）不是 Kilo 的模型 ID（Kilo 用 provider/model
+# 形式），内置网关下视为未配置，避免升级后请求被 404 掉
+_LEGACY_OPENAI_MODEL = re.compile(
+    r"^(gpt-[\w.\-]+|o[134](?:-[\w.\-]+)?|chatgpt-[\w.\-]+|text-[\w.\-]+|davinci[\w.\-]*)$",
+    re.IGNORECASE,
+)
 SEED_LIMIT = 20
 
 
@@ -142,16 +153,57 @@ def llm_api_key() -> str:
     return (os.environ.get("FNMUSIC_LLM_API_KEY") or "").strip()
 
 
-def llm_base_url() -> str:
+def llm_custom_base_url() -> str:
+    """用户自定义的 Base URL（未配置返回空串）。"""
     return (os.environ.get("FNMUSIC_LLM_BASE_URL") or "").strip().rstrip("/")
 
 
+def llm_provider() -> str:
+    """当前生效的大模型接入方：kilo（内置网关）/ custom（自定义）/ none（禁用）。
+
+    显式 FNMUSIC_LLM_PROVIDER 优先；未指定时按自定义 Base URL 推断——留空即用
+    内置 Kilo，填了即切自定义（填 Kilo 自己的域名仍算内置，可继续匿名调用）。
+    """
+    raw = (os.environ.get("FNMUSIC_LLM_PROVIDER") or "").strip().lower()
+    if raw in ("none", "off", "disabled", "false"):
+        return "none"
+    if raw in ("kilo", "custom"):
+        return raw
+    custom = llm_custom_base_url()
+    if not custom:
+        return "kilo"
+    return "kilo" if "kilo.ai" in custom.lower() else "custom"
+
+
+def llm_base_url() -> str:
+    """自定义优先；未配置自定义时回落内置 Kilo 网关。禁用时返回空串。"""
+    if llm_provider() == "none":
+        return ""
+    return llm_custom_base_url() or KILO_BASE_URL
+
+
 def llm_model() -> str:
-    return (os.environ.get("FNMUSIC_LLM_MODEL") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    """显式配置优先；未配置时按接入方给默认模型（内置=Kilo 免费自动路由）。"""
+    if llm_provider() == "none":
+        return ""
+    custom = (os.environ.get("FNMUSIC_LLM_MODEL") or "").strip()
+    if custom and llm_provider() == "kilo" and _LEGACY_OPENAI_MODEL.match(custom):
+        return KILO_MODEL
+    if custom:
+        return custom
+    return KILO_MODEL if llm_provider() == "kilo" else DEFAULT_MODEL
+
+
+def llm_anonymous() -> bool:
+    """内置 Kilo 网关的免费模型支持匿名调用（无需 API Key）。"""
+    return llm_provider() == "kilo"
 
 
 def llm_enabled() -> bool:
-    return bool(llm_base_url() and llm_api_key())
+    """内置网关免配置即可用；自定义接入需 Base URL + API Key 齐全。"""
+    if not llm_base_url():
+        return False
+    return True if llm_anonymous() else bool(llm_api_key())
 
 
 def recommend_cache_dir() -> str:
@@ -919,9 +971,9 @@ def parse_llm_recommendations(text: str) -> list[dict]:
 
 async def call_llm(http_client: httpx.AsyncClient, prompt: str) -> list[dict]:
     base = llm_base_url()
-    key = llm_api_key()
-    if not base or not key:
+    if not base:
         return []
+    key = llm_api_key()
     url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     payload = {
         "model": llm_model(),
@@ -932,10 +984,10 @@ async def call_llm(http_client: httpx.AsyncClient, prompt: str) -> list[dict]:
             {"role": "user", "content": prompt},
         ],
     }
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Content-Type": "application/json"}
+    # 自定义接入必须带 Key；内置 Kilo 网关的免费模型支持匿名，无 Key 时不发 Authorization
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     try:
         resp = await http_client.post(url, json=payload, headers=headers, timeout=llm_timeout_s())
         if resp.status_code >= 400:

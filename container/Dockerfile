@@ -96,8 +96,9 @@ COPY --chown=appuser:appuser lxmusic-service/app.py lxmusic-service/source_runti
 COPY --chown=appuser:appuser lxmusic-service/js/bridge.js /srv/lxmusic-service/js/bridge.js
 COPY --chown=appuser:appuser webui-service/app.py /srv/webui-service/
 COPY --chown=appuser:appuser webui-service/static/ /srv/webui-service/static/
-# webui 复用 .env 安全合并（sys.path 上加 /srv 后 import proxy.env_merge），必须随镜像分发
-COPY --chown=appuser:appuser proxy/__init__.py proxy/env_merge.py /srv/proxy/
+# webui 复用 .env 安全合并（sys.path 上加 /srv 后 import proxy.env_merge），
+# 并读取 proxy.charts 的榜单定义（管理台「榜单管理」页），必须随镜像分发
+COPY --chown=appuser:appuser proxy/__init__.py proxy/env_merge.py proxy/charts.py /srv/proxy/
 RUN find /srv -name "*.py" -exec chmod 0644 {} + \
     && chmod 0755 /srv/lxmusic-service/js/bridge.js \
     && mkdir -p /repo \

@@ -11,6 +11,8 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const PROVIDER_LABEL = { musicdl: "musicdl 聚合音源", musicbox: "网易云音乐盒子", neteasefree: "网易云·免扫码", lxmusic: "洛雪自定义源", none: "未配置" };
 // 分类歌单默认分类（与后端 proxy/recommend.py DEFAULT_CATEGORIES 保持一致）
 const DEFAULT_CATEGORIES = "华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士";
+// 内置大模型默认（Kilo AI Gateway，免配置；与后端 proxy/recommend.py KILO_* 一致）
+const LLM_BUILTIN = { provider: "kilo", base: "", key: "", model: "kilo-auto/free" };
 const PROC_LABEL = { musicdl: "musicdl", musicbox: "musicbox", neteasefree: "neteasefree", lxmusic: "lxmusic", webui: "WebUI" };
 
 let configValues = {};   // GET /api/config 的 values
@@ -137,9 +139,11 @@ function applyConfigToForm() {
   $("#scan-path").value = v.FNMUSIC_LIBRARY_SCAN_PATH || "";
   updateTeeCountLabel();
   updateBindTimeoutLabel();
+  $("#llm-provider").value = v.FNMUSIC_LLM_PROVIDER || "kilo";
   $("#llm-base").value = v.FNMUSIC_LLM_BASE_URL || "";
   $("#llm-key").value = v.FNMUSIC_LLM_API_KEY || "";
   $("#llm-model").value = v.FNMUSIC_LLM_MODEL || "";
+  updateLlmFields();
   $("#search-timeout").value = v.FNMUSIC_SEARCH_TIMEOUT || "15";
   $("#search-probe").checked = v.FNMUSIC_SEARCH_PROBE === "true";
   $("#netease-my-playlists").checked = v.FNMUSIC_NETEASE_MY_PLAYLISTS === "true";
@@ -172,6 +176,7 @@ function collectConfig() {
     FNMUSIC_OFFICIAL_BIND_TIMEOUT_S: parseInt($("#bind-timeout").value || "120", 10) || 120,
     FNMUSIC_TEE_HANDOFF_MAX: parseInt($("#handoff-max").value || "3", 10) || 0,
     FNMUSIC_LIBRARY_SCAN_PATH: $("#scan-path").value.trim(),
+    FNMUSIC_LLM_PROVIDER: $("#llm-provider").value,
     FNMUSIC_LLM_BASE_URL: $("#llm-base").value.trim(),
     FNMUSIC_LLM_API_KEY: $("#llm-key").value.trim(),
     FNMUSIC_LLM_MODEL: $("#llm-model").value.trim(),
@@ -692,6 +697,31 @@ $("#btn-charts-select-kg").addEventListener("click", () =>
   setChartInputs("#kg-charts-grid input", true, "已全选酷狗榜单"));
 $("#btn-charts-select-wy").addEventListener("click", () =>
   setChartInputs("#wy-charts-grid input", true, "已全选网易云榜单"));
+
+/* -------------------------------------------------------------- 大模型 */
+// 切换接入方时灰化不适用的输入项：内置 Kilo 免配置、自定义需 Base URL + Key
+function updateLlmFields() {
+  const provider = $("#llm-provider").value;
+  const custom = provider === "custom";
+  const off = provider === "none";
+  $("#llm-base").disabled = !custom;
+  $("#llm-key").disabled = !custom;
+  $("#llm-model").disabled = off;
+  $("#btn-llm-reset").disabled = provider === "kilo";
+}
+
+$("#llm-provider").addEventListener("change", () => {
+  updateLlmFields();
+  markDirty("大模型接入方已修改");
+});
+$("#btn-llm-reset").addEventListener("click", () => {
+  $("#llm-provider").value = LLM_BUILTIN.provider;
+  $("#llm-base").value = LLM_BUILTIN.base;
+  $("#llm-key").value = LLM_BUILTIN.key;
+  $("#llm-model").value = LLM_BUILTIN.model;
+  updateLlmFields();
+  markDirty("大模型已恢复内置 Kilo 默认");
+});
 
 /* -------------------------------------------------------------- 启动 */
 (async function boot() {
