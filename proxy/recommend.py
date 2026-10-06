@@ -1784,7 +1784,7 @@ async def get_or_build_daily(
     lx_client: httpx.AsyncClient | None = None,
     lx_enabled: bool = False,
     lx_sources: "list[str] | None" = None,
-    recommend_hot: bool = True,
+    recommend_hot: bool = False,
     recommend_daily: bool = True,
     kind: str = "daily",
 ) -> dict:

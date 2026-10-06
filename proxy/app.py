@@ -170,7 +170,8 @@ CONF = {
     # v2.0.0：音质模式 high|balanced|smooth（档序见 quality_order）；
     # 推荐双开关 / 封面补全 / .env 热重载默认开，均可被 .env 覆盖
     "quality_mode": (os.environ.get("FNMUSIC_QUALITY_MODE") or "high").strip().lower(),
-    "recommend_hot": os.environ.get("FNMUSIC_RECOMMEND_HOT", "true").lower() in ("true", "1", "yes"),
+    # 「热门推荐」独立歌单已下线：默认关闭，且 WebUI 不再提供开关（如需恢复可手动设 FNMUSIC_RECOMMEND_HOT=true）
+    "recommend_hot": os.environ.get("FNMUSIC_RECOMMEND_HOT", "false").lower() in ("true", "1", "yes"),
     "recommend_daily": os.environ.get("FNMUSIC_RECOMMEND_DAILY", "true").lower() in ("true", "1", "yes"),
     # 多排行榜歌单注入（对齐二开分支）：默认开，可分别控制榜单总开关 / 酷狗榜 / 网易榜，
     # 也可用 FNMUSIC_ENABLED_CHARTS 指定白名单（逗号分隔的榜单 id）
@@ -6309,7 +6310,7 @@ def _prune_stale_daily_tasks(day: str) -> None:
 def _recommend_kind_enabled(kind: str) -> bool:
     kind = dailyrec.normalize_kind(kind)
     if kind == "hot":
-        return bool(CONF.get("recommend_hot", True))
+        return bool(CONF.get("recommend_hot", False))
     if dailyrec.is_category_kind(kind):
         # 分类歌单：配置列表里下标有效即启用（FNMUSIC_RECOMMEND_CATEGORIES 置空=关闭）
         return 0 <= dailyrec.category_index(kind) < len(dailyrec.category_list())
@@ -6396,7 +6397,7 @@ async def _ensure_daily_task(request: Request, user_guid: str, kind: str = "dail
         lx_client=get_lx_client(request.app) if CONF.get("lx_enabled") else None,
         lx_enabled=bool(CONF.get("lx_enabled")),
         lx_sources=CONF.get("lx_sources") or None,
-        recommend_hot=bool(CONF.get("recommend_hot", True)),
+        recommend_hot=bool(CONF.get("recommend_hot", False)),
         recommend_daily=bool(CONF.get("recommend_daily", True)),
         kind=kind,
     )

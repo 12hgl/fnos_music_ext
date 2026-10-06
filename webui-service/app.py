@@ -76,7 +76,6 @@ SCHEMA: dict[str, dict] = {
     "LX_SOURCE_URL": {"kind": "str", "default": "", "group": "lx", "reload": "process", "label": "洛雪源脚本地址（http(s) URL 或 file:// 上传地址）"},
     "LX_SOURCES": {"kind": "csv", "default": "kg,wy,mg,kw", "group": "lx", "reload": "hot", "label": "lx 平台（按源声明推导）"},
     "FNMUSIC_QUALITY_MODE": {"kind": "enum", "values": ["high", "balanced", "smooth"], "default": "high", "group": "quality", "reload": "hot", "label": "音质偏好"},
-    "FNMUSIC_RECOMMEND_HOT": {"kind": "bool", "default": "true", "group": "recommend", "reload": "hot", "label": "热门榜单推荐"},
     "FNMUSIC_RECOMMEND_DAILY": {"kind": "bool", "default": "true", "group": "recommend", "reload": "hot", "label": "每日推荐"},
     "FNMUSIC_RECOMMEND_CATEGORIES": {"kind": "csv", "default": "华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士", "group": "recommend", "reload": "hot", "label": "分类歌单（华语/流行…，逗号分隔）"},
     "FNMUSIC_RECOMMEND_CATEGORY_SIZE": {"kind": "int", "default": "200", "min": 20, "max": 1000, "group": "recommend", "reload": "hot", "label": "每个分类歌单目标曲量"},

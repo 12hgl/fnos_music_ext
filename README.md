@@ -31,13 +31,12 @@
 - **自动下载歌词**（默认关）：自动保存到本地曲库的歌曲在完整下载成功后，自动下载同名 `.lrc` 歌词放到歌曲同一个文件夹；
 - **收藏/加歌单自动绑定本地**（默认关）：收藏或加歌单的在线歌曲先立即生效，随后后台自动下载到本地曲库并自动写进飞牛官方的收藏/歌单列表；
 - **智能推荐体系**：
-  - **热门推荐**：榜单原味，独立开关；
   - **每日推荐 MM-DD**：按账户隔离；网易原生每日推荐 + **内置大模型兜底** + **聚合网易热门歌单扩容到 200+ 首**（`FNMUSIC_RECOMMEND_SIZE`，默认 200）；
   - **分类歌单**（二开新增，v2.7.0）：华语 / 流行 / 摇滚 / 民谣 / 电子 / 古风 / 说唱 / 轻音乐 / 爵士 等独立歌单，每个默认 200 首（`FNMUSIC_RECOMMEND_CATEGORIES` / `FNMUSIC_RECOMMEND_CATEGORY_SIZE`，均支持热重载）；
   - **排行榜歌单**（二开新增，v2.7.3）：酷狗 20 个 + 网易云 18 个，共 **38 个**热门榜单，每个默认 100 首（`FNMUSIC_CHART_LIMIT`），总开关 / 来源开关 / 逐榜白名单全部热重载；
-- **启动即预热**：容器启动后 5 秒后台自动构建分类歌单、热门推荐、每日推荐；排行榜歌单用**内存 + 磁盘双层缓存**，按天重建，磁盘历史回退，冷启动进列表不空白；
+- **启动即预热**：容器启动后 5 秒后台自动构建分类歌单、每日推荐；排行榜歌单用**内存 + 磁盘双层缓存**，按天重建，磁盘历史回退，冷启动进列表不空白；
 - **内置大模型网关**：默认接入 [Kilo AI Gateway](https://app.kilo.ai/)（OpenAI 兼容），其免费模型支持匿名调用，**免配置开箱即用**；也可一键切换为自定义 OpenAI 兼容接口（DeepSeek / GPT / Qwen 等），接入方与密钥均热重载；
-- **网易账号歌单**（默认关）：网易盒子扫码登录后，账号自建歌单以只读歌单出现在音乐页「热门推荐」下方、官方歌单上方；
+- **网易账号歌单**（默认关）：网易盒子扫码登录后，账号自建歌单以只读歌单出现在音乐页官方歌单上方；
 - **官方音质偏好转码**：官方 App 选择"标准"时，在线歌曲由 ffmpeg 实时转码为 AAC HLS 分片流播放（`FNMUSIC_TRANSCODE_ENABLED`，默认开）；
 - **推荐构建预算与渐进上架**：单次推荐生成有总秒数预算（`FNMUSIC_RECOMMEND_BUDGET_S`，默认 40s），每解析一首即渐进上架，超时不丢已完成部分；
 - **封面智能补全**：musicdl/lx 搜索结果缺封面时，用网易曲库同名曲补全；
@@ -112,7 +111,9 @@ chmod +x install.sh extend.sh restore.sh proxy/run_proxy.sh
 ./install.sh
 ```
 
-向导依次引导：**音源四选一**（1 网易云 musicbox → 扫码登录；2 musicdl → 平台多选；3 neteasefree → 后端地址；4 洛雪 → 直接安装，源脚本装后在管理页配置）→ **是否安装管理 WebUI**（默认否）→ **大模型兜底推荐**（默认启用内置 Kilo，免配置；也可选自定义接入）→ 自动执行 `./extend.sh` 接管验收。
+向导依次引导：**音源四选一**（**默认 3 = neteasefree**，免扫码；1 网易云 musicbox → 扫码登录；2 musicdl → 平台多选；4 洛雪 → 直接安装，源脚本装后在管理页配置）→ **是否安装管理 WebUI**（默认否）→ **大模型兜底推荐**（默认启用内置 Kilo，免配置；也可选自定义接入）→ 自动执行 `./extend.sh` 接管验收。
+
+> 非交互模式（`--non-interactive`）不指定 `--sources` 时，缺省音源同样为 **neteasefree**。
 
 非交互示例：
 
@@ -179,8 +180,8 @@ curl -s --unix-socket /var/run/trim_music.socket http://localhost/_ext/healthz
 | `FNMUSIC_AUTO_COVER` | `true` | 自动下载封面（热重载） |
 | `FNMUSIC_LYRIC_AUTO_DL` | `false` | 自动下载歌词（热重载） |
 | `FNMUSIC_TRANSCODE_ENABLED` | `true` | App 标准音质转码播放（热重载） |
-| `FNMUSIC_RECOMMEND_HOT` / `FNMUSIC_RECOMMEND_DAILY` | `true` / `true` | 热门推荐 / 每日推荐 开关（热重载） |
-| `FNMUSIC_RECOMMEND_SIZE` | `200` | 每日/热门推荐目标曲量，每日不足时聚合热门歌单补齐（20-1000，热重载） |
+| `FNMUSIC_RECOMMEND_DAILY` | `true` | 每日推荐 开关（热重载） |
+| `FNMUSIC_RECOMMEND_SIZE` | `200` | 每日推荐目标曲量，不足时聚合热门歌单补齐（20-1000，热重载） |
 | `FNMUSIC_RECOMMEND_CATEGORIES` | `华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士` | 分类歌单分类列表，逗号分隔；置空即关闭 |
 | `FNMUSIC_RECOMMEND_CATEGORY_SIZE` | `200` | 每个分类歌单的目标曲量（20-1000，热重载） |
 | `FNMUSIC_RECOMMEND_CHARTS` | `true` | **排行榜歌单总开关**（酷狗 20 + 网易云 18 = 38 个榜单，热重载） |

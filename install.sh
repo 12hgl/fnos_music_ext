@@ -97,7 +97,7 @@ usage() {
                                --sources musicdl-kuwo,musicdl-migu
                                --sources lxmusic --lx-source-url https://example.com/lx.js
                                --sources lxmusic（无源安装，装后在管理页配置）
-                         非交互缺省: musicdl
+                         非交互缺省: neteasefree
   --lx-source-url SRC    洛雪自定义源脚本地址：http(s) URL、file:// URL 或本机 .js 文件路径
                          （本机路径会复制进 sources-data/lxmusic/uploads/ 并转为 file://；
                           留空=无源安装，装好在管理页 WebUI 配置）
@@ -105,7 +105,7 @@ usage() {
                          源是否可用装好后在管理页 WebUI 查看，适合不想因源故障中断安装的场景
   --webui                安装管理 Web UI（仅本机 8774；由已登录的飞牛管理员打开）
   --no-webui             不安装管理 Web UI（非交互默认）
-  --non-interactive      无交互，缺省值：音源=musicdl，不装 WebUI，不开启每日推荐
+  --non-interactive      无交互，缺省值：音源=neteasefree，不装 WebUI，不开启每日推荐
   --enable-recommend     开启大模型兜底推荐（默认用内置 Kilo，免配置）
   --disable-recommend    明确关闭大模型兜底，并清除 .env 中已保存的 LLM 配置
   --llm-provider P       接入方：kilo=内置 Kilo AI Gateway（默认，免配置）；
@@ -760,7 +760,7 @@ if [ "${NON_INTERACTIVE}" -eq 0 ]; then
         echo "  2) musicdl     — 聚合音源（多平台可选：酷我/咪咕/酷狗/QQ/B站等）"
         echo "  3) neteasefree — 网易云·免扫码（后端服务端登录态，免扫码直接解析 VIP/无损直链）"
         echo "  4) lxmusic     — 洛雪音乐自定义源（解析播放只走用户源；源脚本装后在管理页配置：URL / 上传 .js / NAS 选择）"
-        local_choice="$(prompt "请选择音源 (输入 1/2/3/4)" "2")"
+        local_choice="$(prompt "请选择音源 (输入 1/2/3/4)" "3")"
         case "${local_choice}" in
             1) SOURCES_RAW="musicbox" ;;
             3) SOURCES_RAW="neteasefree" ;;
@@ -844,7 +844,7 @@ if [ "${NON_INTERACTIVE}" -eq 0 ]; then
         *) RUN_EXTEND=1 ;;
     esac
 else
-    SOURCES_RAW="${SOURCES_RAW:-musicdl}"
+    SOURCES_RAW="${SOURCES_RAW:-neteasefree}"
     WEBUI_CHOICE="${WEBUI_CHOICE:-no}"
     if [ "${ENABLE_RECOMMEND}" = "yes" ]; then
         # 非交互：默认内置 Kilo（免配置）；给了 URL/Key 即视为自定义接入

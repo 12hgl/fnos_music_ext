@@ -120,7 +120,6 @@ function applyConfigToForm() {
   if (provider === "neteasefree") syncNeteaseFreeState();
   const quality = v.FNMUSIC_QUALITY_MODE || "high";
   $$("input[name=quality]").forEach((el) => { el.checked = el.value === quality; });
-  $("#recommend-hot").checked = v.FNMUSIC_RECOMMEND_HOT === "true";
   $("#recommend-daily").checked = v.FNMUSIC_RECOMMEND_DAILY === "true";
   const categories = v.FNMUSIC_RECOMMEND_CATEGORIES || "";
   $("#recommend-categories-enabled").checked = categories.trim() !== "";
@@ -160,7 +159,6 @@ function collectConfig() {
     FNMUSIC_NETEASEFREE_ENABLED: provider === "neteasefree",
     FNMUSIC_LX_ENABLED: provider === "lxmusic",
     FNMUSIC_QUALITY_MODE: ($$("input[name=quality]").find((el) => el.checked) || {}).value || "high",
-    FNMUSIC_RECOMMEND_HOT: $("#recommend-hot").checked,
     FNMUSIC_RECOMMEND_DAILY: $("#recommend-daily").checked,
     FNMUSIC_RECOMMEND_CATEGORIES: $("#recommend-categories-enabled").checked
       ? ($("#recommend-categories").value.trim() || DEFAULT_CATEGORIES)
@@ -578,7 +576,7 @@ $("#lx-pick").addEventListener("click", lxPickFromNas);
 ["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
 $$("input[name=quality]").forEach((el) => el.addEventListener("change", () => markDirty("音质偏好需保存后生效")));
-["#recommend-hot", "#recommend-daily", "#search-probe", "#tee-enabled", "#fav-autobind", "#auto-cover", "#lyric-auto-dl", "#netease-my-playlists"].forEach((sel) =>
+["#recommend-daily", "#search-probe", "#tee-enabled", "#fav-autobind", "#auto-cover", "#lyric-auto-dl", "#netease-my-playlists"].forEach((sel) =>
   $(sel).addEventListener("change", () => markDirty()));
 ["#recommend-categories", "#recommend-category-size"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
