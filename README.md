@@ -2,6 +2,8 @@
 
 GitHub：https://github.com/12hgl/fnos_music_ext
 
+> 本项目是 [javycoder/fnos_music_ext](https://github.com/javycoder/fnos_music_ext) 的二次开发版本，衷心感谢原作者 [@javycoder](https://github.com/javycoder) 的杰出工作与开源贡献。本仓库在其基础上对齐并增强了多榜单歌单、热重载与管理页等能力，原始架构与绝大部分功能均出自原作者。
+
 `fnmusic-ext` 是专为 fnOS（飞牛私有云）自带音乐应用（`trim.music`）打造的**无侵入增强扩展**。它通过接管官方后端的 Unix Socket 通信入口，在完全不修改官方程序、nginx 配置与数据库的前提下，让原生飞牛音乐获得在线音乐能力；可随时一条命令还原官方直连。
 
 ![飞牛桌面里的 fnMusic 扩展管理](preview_image/preview.png)
@@ -206,4 +208,7 @@ sudo python3 tests/integration/fpk_lifecycle.py --auto-restore
 - 洛雪自定义源脚本等第三方代码由使用者自行提供并在容器内执行。导入 URL 或 `.js` 前必须自行确认来源安全，不要导入来历不明的脚本，且仅访问您有权收听的内容；
 - 使用者应遵守所在国家/地区法律法规与第三方平台用户协议；因滥用导致的任何责任由使用者自行承担。
 
-上游致谢：[CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl)、[darknessomi/musicbox](https://github.com/darknessomi/musicbox)、洛雪音乐（LX Music）社区及其自定义源规范。
+上游致谢：
+
+- 特别感谢原项目作者 [@javycoder](https://github.com/javycoder) —— [javycoder/fnos_music_ext](https://github.com/javycoder/fnos_music_ext)，本仓库为在此基础上进行二次开发；
+- [CharlesPikachu/musicdl](https://github.com/CharlesPikachu/musicdl)、[darknessomi/musicbox](https://github.com/darknessomi/musicbox)、洛雪音乐（LX Music）社区及其自定义源规范。
