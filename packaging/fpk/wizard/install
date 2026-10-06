@@ -1,0 +1,51 @@
+[
+    {
+        "stepTitle": "音源选择",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "本应用需要应用中心已安装并启动官方\"飞牛音乐\"（安装时自动检测）。音源安装后可随时在管理页切换，秒级生效。"
+            },
+            {
+                "type": "radio",
+                "field": "wizard_sources",
+                "label": "初始音源（四选一）",
+                "initValue": "neteasefree",
+                "options": [
+                    {
+                        "label": "neteasefree — 网易云·免扫码【推荐】（后端服务端登录态直接解析 VIP/无损直链，无需扫码，装好即用）",
+                        "value": "neteasefree"
+                    },
+                    {
+                        "label": "musicdl — 聚合音源（免登录，酷我/咪咕等多平台可选）",
+                        "value": "musicdl"
+                    },
+                    {
+                        "label": "musicbox — 网易云音乐盒子（安装后在管理页扫码登录，个人曲库/每日推荐）",
+                        "value": "musicbox"
+                    },
+                    {
+                        "label": "lxmusic — 洛雪自定义源（安装后在管理页配置源脚本：粘贴 URL / 上传 .js / NAS 选择）",
+                        "value": "lxmusic"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择一个初始音源"
+                    }
+                ]
+            },
+            {
+                "type": "tips",
+                "helpText": "选择洛雪自定义源时无需在此提供脚本：安装完成后用飞牛管理员打开桌面「fnMusic 扩展管理」，在「音乐源 → 洛雪自定义源」里粘贴脚本 URL、上传电脑上的 .js 文件或从 NAS 选择，测试可用后保存即激活。"
+            },
+            {
+                "type": "switch",
+                "field": "wizard_extend",
+                "label": "安装完成后立即启用扩展（接管官方音乐入口，可随时在应用中心停止还原）",
+                "initValue": "true"
+            }
+        ]
+    }
+]
