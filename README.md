@@ -1,12 +1,11 @@
-# fnmusic-ext · 飞牛音乐扩展（二次开发版）
+# fnmusic-ext 飞牛音乐扩展（二开）
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-12hgl%2Ffnos_music_ext-blue)](https://github.com/12hgl/fnos_music_ext)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.7.3-green.svg)](VERSION)
 
-> **本项目是 [javycoder/fnos_music_ext](https://github.com/javycoder/fnos_music_ext) 的二次开发版本。**
-> 衷心感谢原作者 [@javycoder](https://github.com/javycoder) 的杰出工作与开源贡献，原始架构与绝大部分功能均出自原作者。
-> 本仓库在此基础上**对齐并增强**了多音源（新增 neteasefree）、多分类/榜单歌单、每日扩容、推荐热重载、收藏自动绑定、转码播放、榜单管理页等能力，适配当前的实际使用场景。
+> **本项目是 [javycoder/fnos_music_ext](https://github.com/javycoder/fnos_music_ext) 的二开版本。**
+> 衷心感谢原作者 [@javycoder](https://github.com/javycoder) 的杰出工作与开源贡献，原始架构与绝大部分功能均出自原作者
 
 ---
 
@@ -23,7 +22,7 @@
 - **四音源互斥单选**（v2.0.0 起互斥，可在 WebUI 秒级切换）：
   - [musicbox](https://github.com/darknessomi/musicbox)：网易云高品质解析，支持扫码登录 VIP/无损曲库与原生每日推荐；
   - [musicdl](https://github.com/CharlesPikachu/musicdl)：酷我/咪咕等平台聚合，可按平台粒度勾选（编号见 [musicdl-service/PLATFORMS.md](musicdl-service/PLATFORMS.md)）；
-  - **neteasefree**（二开新增）：网易云免扫码方案，连接兼容 [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) 协议的后端（默认 `https://zm.wwoyun.cn`），**服务端登录态解析 VIP 直链**，支持分类歌单聚合、每日推荐扩容等高级构建链；
+  - **neteasefree**：网易云免扫码方案，连接兼容 [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) 协议的后端（默认 `https://zm.wwoyun.cn`），**服务端登录态解析 VIP 直链**，支持分类歌单聚合、每日推荐扩容等高级构建链；
   - **lxmusic**：洛雪音乐自定义源运行时——搜索/歌词/榜单走内置平台接口，播放解析由你提供的洛雪自定义源脚本（在容器内执行）完成。源脚本支持三种配置方式：**粘贴 URL**、**上传电脑上的 `.js` 文件**、**从 NAS 选择 `.js`**（飞牛桌面内）；
 - **管理 WebUI**（可选，仅本机 8774）：在已登录的飞牛管理员页面打开。浏览器里完成音源切换、musicdl 平台勾选、网易扫码、洛雪源配置、音质偏好、边听边存、推荐开关与 LLM 配置、**榜单管理**，全部热生效；
 - **音质偏好**：`高音质`（从高到低）/ `平衡`（取中间档）/ `流畅`（优先最低）三种模式，覆盖全部音源；
