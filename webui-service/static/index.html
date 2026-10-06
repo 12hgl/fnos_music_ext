@@ -160,6 +160,11 @@
           <label class="field"><span>每日/热门曲量</span><input class="input" id="recommend-size" type="number" min="20" max="1000" step="10" placeholder="200"></label>
           <p class="hint">每日/热门推荐的目标曲量，默认 200。每日推荐由网易推荐歌单聚合补齐到此数量；改大后当天缓存会重建，可在软件启动预热后稍等片刻。</p>
         </div>
+        <div class="card">
+          <div class="card-title">在线单曲</div>
+          <label class="field"><span>歌曲列表</span><textarea class="input" id="user-songs" rows="3" placeholder="歌曲名1,歌曲名2,歌曲名3&#10;也可用「歌名 - 歌手」提高匹配精度，逗号或换行分隔"></textarea></label>
+          <p class="hint">按「歌曲名」逐一在线检索并生成「在线单曲」歌单，<strong>仅在线播放、不下载</strong>，但会正常显示在曲库歌单中。留空即不生成；保存后立即生效。</p>
+        </div>
       </section>
 
       <!-- 榜单管理 -->
@@ -255,6 +260,8 @@
           <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="留空使用内置 Kilo；自定义时如 https://api.example.com/v1"></label>
           <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="内置 Kilo 免费模型可留空；自定义必填"></label>
           <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="kilo-auto/free，或自定义 provider/model"></label>
+          <label class="field"><span>点歌提示（任意内容）</span><textarea class="input" id="llm-prompt" rows="3" placeholder="例如：来 20 首周杰伦的经典歌曲&#10;或：适合雨天听的华语民谣"></textarea></label>
+          <p class="hint">填写后，大模型会据此生成歌曲列表并加入「在线单曲」歌单（仅在线、不下载）。留空即不使用；保存后立即生效。</p>
           <div class="chart-actions">
             <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
           </div>

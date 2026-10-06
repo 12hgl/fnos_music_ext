@@ -34,6 +34,7 @@
   - **每日推荐 MM-DD**：按账户隔离；网易原生每日推荐 + **内置大模型兜底** + **聚合网易热门歌单扩容到 200+ 首**（`FNMUSIC_RECOMMEND_SIZE`，默认 200）；
   - **分类歌单**（二开新增，v2.7.0）：华语 / 流行 / 摇滚 / 民谣 / 电子 / 古风 / 说唱 / 轻音乐 / 爵士 等独立歌单，每个默认 200 首（`FNMUSIC_RECOMMEND_CATEGORIES` / `FNMUSIC_RECOMMEND_CATEGORY_SIZE`，均支持热重载）；
   - **排行榜歌单**（二开新增，v2.7.3）：酷狗 20 个 + 网易云 18 个，共 **38 个**热门榜单，每个默认 100 首（`FNMUSIC_CHART_LIMIT`），总开关 / 来源开关 / 逐榜白名单全部热重载；
+  - **在线单曲**（二开新增，v2.7.5）：按歌名点歌生成只读歌单，**仅在线播放、不下载**，但会显示在曲库歌单中。可手填歌曲列表（`FNMUSIC_USER_SONGS`），或填任意「点歌提示」由内置大模型生成（`FNMUSIC_LLM_PROMPT`），两者可同时使用、自动去重，均热重载；
 - **启动即预热**：容器启动后 5 秒后台自动构建分类歌单、每日推荐；排行榜歌单用**内存 + 磁盘双层缓存**，按天重建，磁盘历史回退，冷启动进列表不空白；
 - **内置大模型网关**：默认接入 [Kilo AI Gateway](https://app.kilo.ai/)（OpenAI 兼容），其免费模型支持匿名调用，**免配置开箱即用**；也可一键切换为自定义 OpenAI 兼容接口（DeepSeek / GPT / Qwen 等），接入方与密钥均热重载；
 - **网易账号歌单**（默认关）：网易盒子扫码登录后，账号自建歌单以只读歌单出现在音乐页官方歌单上方；
@@ -184,6 +185,8 @@ curl -s --unix-socket /var/run/trim_music.socket http://localhost/_ext/healthz
 | `FNMUSIC_RECOMMEND_SIZE` | `200` | 每日推荐目标曲量，不足时聚合热门歌单补齐（20-1000，热重载） |
 | `FNMUSIC_RECOMMEND_CATEGORIES` | `华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士` | 分类歌单分类列表，逗号分隔；置空即关闭 |
 | `FNMUSIC_RECOMMEND_CATEGORY_SIZE` | `200` | 每个分类歌单的目标曲量（20-1000，热重载） |
+| `FNMUSIC_USER_SONGS` | *(空)* | 在线单曲列表（`歌名1,歌名2`，支持「歌名 - 歌手」）；仅在线不下载（热重载） |
+| `FNMUSIC_LLM_PROMPT` | *(空)* | 大模型点歌提示（任意内容），生成结果并入「在线单曲」歌单（热重载） |
 | `FNMUSIC_RECOMMEND_CHARTS` | `true` | **排行榜歌单总开关**（酷狗 20 + 网易云 18 = 38 个榜单，热重载） |
 | `FNMUSIC_ENABLED_CHARTS` | *(空)* | 逐榜白名单，逗号分隔榜单 id（如 `kg_8888,wy_19723756`）；留空=全部启用；全关闭哨兵值 `none`（热重载） |
 | `FNMUSIC_KG_CHARTS` / `FNMUSIC_WY_CHARTS` | `true` / `true` | 按来源批量开关排行榜（热重载） |

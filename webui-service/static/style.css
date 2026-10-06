@@ -88,6 +88,7 @@ h2 { margin: 4px 0 14px; font-size: 20px; }
   border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px;
   font-size: 14px; background: #fff; color: var(--text);
   width: 100%; max-width: 100%; min-width: 0;
+  font-family: inherit; resize: vertical;
 }
 .input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 14px; }

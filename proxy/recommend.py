@@ -17,6 +17,9 @@
       （华语/流行/摇滚…，默认见 DEFAULT_CATEGORIES）聚合该分类下热门歌单的曲目，
       曲量大（FNMUSIC_RECOMMEND_CATEGORY_SIZE，默认 200 首）；仅免扫码 neteasefree
       音源支持，musicbox 等返回空即不挂卡。所有用户共用 shared 缓存。
+  - 在线单曲（singles，FNMUSIC_USER_SONGS / FNMUSIC_LLM_PROMPT）：用户显式点歌
+      列表 + 大模型点歌提示生成的只读虚拟歌单，逐首在线检索、可播校验，仅在线
+      不下载；配置任一非空即注入，配置变化经热重载失效重建。
 歌单封面取曲：第一个带可用封面直链的在线曲目；无在线封面回落第一首带官方
 coverId 的本地曲目（跳过酷我文本页假链接）。
 密钥只从环境变量读取，绝不写入 CONF / 日志 / 缓存。
@@ -43,6 +46,12 @@ HOT_GUID_PREFIX = "online:playlist:hot:"
 # 分类歌单（华语/流行/摇滚…）：guid 形如 online:playlist:cat:<序号>:<day>。
 # 序号是 FNMUSIC_RECOMMEND_CATEGORIES 配置列表的下标，因此可由 guid 反解出分类名。
 CAT_GUID_PREFIX = "online:playlist:cat:"
+# 在线单曲：用户显式点歌（FNMUSIC_USER_SONGS）或大模型点歌（FNMUSIC_LLM_PROMPT）
+# 生成的只读虚拟歌单（仅在线、不下载），guid 形如 online:playlist:singles:<day>。
+# 与分类歌单一样是实例级公共内容，不带用户后缀、所有用户共用同一份缓存。
+SINGLES_GUID_PREFIX = "online:playlist:singles:"
+# 在线单曲候选上限（用户输入 + 大模型生成合计，防止误填超长列表拖垮搜索）
+SINGLES_MAX = 200
 # 默认分类（可用 FNMUSIC_RECOMMEND_CATEGORIES 覆盖，逗号分隔；置空=关闭分类歌单）
 DEFAULT_CATEGORIES = ["华语", "流行", "摇滚", "民谣", "电子", "古风", "说唱", "轻音乐", "爵士"]
 # 每个分类歌单的目标曲量（可用 FNMUSIC_RECOMMEND_CATEGORY_SIZE 覆盖，20-1000）
@@ -251,6 +260,53 @@ def default_size() -> int:
     return _env_int("FNMUSIC_RECOMMEND_SIZE", RECOMMEND_SIZE_DEFAULT, 20, 1000)
 
 
+# ---- 在线单曲（用户显式点歌 / 大模型点歌） ----
+
+def user_songs_input() -> str:
+    """用户输入的在线单曲列表原文（FNMUSIC_USER_SONGS，逗号/换行分隔）。"""
+    return (os.environ.get("FNMUSIC_USER_SONGS") or "").strip()
+
+
+def llm_song_prompt() -> str:
+    """大模型点歌提示原文（FNMUSIC_LLM_PROMPT，任意内容）。"""
+    return (os.environ.get("FNMUSIC_LLM_PROMPT") or "").strip()
+
+
+def parse_user_song_list(text: str) -> list[dict]:
+    """解析「歌曲名1,歌曲名2」形式的点歌列表为候选条目。
+
+    逗号（中英文）或换行分隔；每项支持「歌名 - 歌手」形式（用空格-空格分隔）以
+    提高匹配精度，否则只按歌名检索。去重后返回 [{title, artist}, ...]。
+    """
+    raw = str(text or "").replace("，", ",").replace("\r", "\n").replace(",", "\n")
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for line in raw.split("\n"):
+        item = line.strip()
+        if not item:
+            continue
+        title, artist = item, ""
+        sep = item.find(" - ")
+        if sep > 0:
+            title, artist = item[:sep].strip(), item[sep + 3:].strip()
+        if not title:
+            continue
+        key = (title.lower(), artist.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"title": title, "artist": artist})
+    return out
+
+
+def singles_target_size() -> int:
+    """在线单曲目标曲量：显式列表条数；仅大模型点歌时用候选数（10-60）；上限 SINGLES_MAX。"""
+    n = len(parse_user_song_list(user_songs_input()))
+    if llm_song_prompt():
+        n = max(n, llm_candidate_count())
+    return max(1, min(n, SINGLES_MAX))
+
+
 def is_category_kind(kind: str) -> bool:
     return str(kind or "").startswith("cat:")
 
@@ -274,17 +330,21 @@ def category_name(kind: str) -> str:
 
 
 def normalize_kind(kind: str) -> str:
-    """归一类歌单类型：daily / hot / cat:<下标>（未知一律 daily）。"""
+    """归一类歌单类型：daily / hot / singles / cat:<下标>（未知一律 daily）。"""
     k = str(kind or "")
     if is_category_kind(k):
         return k
-    if k == "hot":
-        return "hot"
+    if k in ("hot", "singles"):
+        return k
     return "daily"
 
 
 def kind_target_size(kind: str) -> int:
-    """该类型的列表目标曲量：分类歌单按分类配置、每日/热门按 FNMUSIC_RECOMMEND_SIZE。"""
+    """该类型的列表目标曲量：分类歌单按分类配置、每日/热门按 FNMUSIC_RECOMMEND_SIZE、
+    在线单曲按用户点歌条数。"""
+    kind = normalize_kind(kind)
+    if kind == "singles":
+        return singles_target_size()
     return category_size() if is_category_kind(kind) else default_size()
 
 
@@ -296,13 +356,16 @@ def recommend_playlist_guid(kind: str, day: str | None = None, user_guid: str = 
     kind = normalize_kind(kind)
     if kind == "hot":
         prefix = HOT_GUID_PREFIX
+    elif kind == "singles":
+        prefix = SINGLES_GUID_PREFIX
     elif is_category_kind(kind):
         # 分类歌单是公共歌单：guid 不带用户后缀（所有用户共用同一份，命中同一缓存）
         prefix = f"{CAT_GUID_PREFIX}{max(category_index(kind), 0)}:"
     else:
         prefix = DAILY_GUID_PREFIX
     day = day or today_key()
-    if is_category_kind(kind):
+    if is_category_kind(kind) or kind == "singles":
+        # 分类歌单与在线单曲都是实例级公共内容：guid 不带用户后缀（共用同一份缓存）
         return f"{prefix}{day}"
     suffix = re.sub(r"[^A-Za-z0-9]", "", user_guid)[:12]
     if suffix:
@@ -322,12 +385,14 @@ CHART_GUID_PREFIX = "online:playlist:chart:"
 
 
 def online_playlist_kind(guid: str | None) -> str:
-    """解析推荐歌单 guid 的类型：daily / hot / cat:<下标> / chart，非推荐歌单返回空串。"""
+    """解析推荐歌单 guid 的类型：daily / hot / singles / cat:<下标> / chart，非推荐歌单返回空串。"""
     s = str(guid or "")
     if s.startswith(DAILY_GUID_PREFIX):
         return "daily"
     if s.startswith(HOT_GUID_PREFIX):
         return "hot"
+    if s.startswith(SINGLES_GUID_PREFIX):
+        return "singles"
     if s.startswith(CAT_GUID_PREFIX):
         idx = s[len(CAT_GUID_PREFIX):].split(":", 1)[0]
         if idx.isdigit():
@@ -969,6 +1034,20 @@ def parse_llm_recommendations(text: str) -> list[dict]:
     return out
 
 
+def build_singles_prompt(prompt: str, count: int) -> str:
+    """「在线单曲」大模型点歌提示：把用户任意描述转成可在线检索的歌单。"""
+    return f"""你是音乐点歌助手。用户会给出任意需求，请据此挑选 {count} 首适合在线检索的歌曲。
+
+约束：
+1. 只输出 JSON 数组，不要 markdown，不要解释。
+2. 每项字段：title（歌名）、artist（歌手），都要尽量准确，便于搜索匹配。
+3. 歌手与歌名必须真实存在、主流可搜，不要编造。
+
+用户需求：
+{prompt}
+"""
+
+
 async def call_llm(http_client: httpx.AsyncClient, prompt: str) -> list[dict]:
     base = llm_base_url()
     if not base:
@@ -1543,8 +1622,9 @@ def _dedupe_extend(base: list[dict], extra: list[dict], limit: int) -> list[dict
 def cache_path(user_guid: str, day: str, kind: str = "daily") -> str:
     kind = normalize_kind(kind)
     token = _kind_file_token(kind)
-    # 分类歌单是公共歌单，所有用户共用 shared 目录下同一份，避免重复构建/重复打后端
-    folder = _safe_user_name("shared") if is_category_kind(kind) else _safe_user_name(user_guid)
+    # 分类歌单与在线单曲是公共/实例级歌单，所有用户共用 shared 目录下同一份，
+    # 避免重复构建/重复打后端
+    folder = _safe_user_name("shared") if (is_category_kind(kind) or kind == "singles") else _safe_user_name(user_guid)
     return os.path.join(recommend_cache_dir(), folder, f"{token}-{day}.json")
 
 
@@ -1594,6 +1674,34 @@ def purge_stale_daily_cache(user_guid: str, keep_day: str) -> None:
     root = recommend_cache_dir()
     _purge_stale_in_folder(os.path.join(root, _safe_user_name(user_guid)), keep_day)
     _purge_stale_in_folder(os.path.join(root, _safe_user_name("shared")), keep_day)
+
+
+def invalidate_kind_cache_all_users(kind: str) -> int:
+    """清掉所有用户指定类型的推荐缓存（如在线单曲配置变化后立即重建）。返回删除文件数。"""
+    token = _kind_file_token(kind)
+    root = recommend_cache_dir()
+    try:
+        users = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+    except OSError:
+        return 0
+    removed = 0
+    for user in users:
+        folder = os.path.join(root, user)
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".json") or not name.startswith(f"{token}-"):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                os.remove(path)
+                removed += 1
+                logger.info("invalidated recommend cache (%s config changed): %s", token, path)
+            except Exception as e:
+                logger.warning("failed to invalidate %s: %s", path, e)
+    return removed
 
 
 def invalidate_today_cache_all_users() -> int:
@@ -1742,6 +1850,8 @@ def build_playlist_record(
 
 def playlist_display_name(kind: str, day: str | None = None) -> str:
     kind = normalize_kind(kind)
+    if kind == "singles":
+        return "在线单曲"
     if kind == "hot":
         return "热门推荐"
     if is_category_kind(kind):
@@ -1772,6 +1882,83 @@ def empty_daily_bundle(user_guid: str, kind: str = "daily") -> dict:
     }
 
 
+async def build_singles_bundle(
+    user_guid: str,
+    day: str,
+    guid: str,
+    musicdl_client: httpx.AsyncClient | None,
+    musicbox_client: httpx.AsyncClient | None,
+    llm_http: httpx.AsyncClient | None,
+    build_track,
+    netease_enabled: bool,
+    lx_client: httpx.AsyncClient | None = None,
+    lx_enabled: bool = False,
+    lx_sources: "list[str] | None" = None,
+) -> dict:
+    """构建「在线单曲」虚拟歌单：显式点歌列表 + 大模型点歌，逐一在线检索可播曲目。
+
+    纯在线、不下载：曲目由音源搜索匹配（复用 resolve_recommendations 的逐首可播
+    校验），放入飞牛识别为在线歌单的 isDaily 记录，正常显示在曲库中。
+    """
+    target = singles_target_size()
+    candidates: list[dict] = parse_user_song_list(user_songs_input())
+    tiers: list[str] = []
+    if candidates:
+        tiers.append("user-songs")
+
+    prompt = llm_song_prompt()
+    if prompt and llm_http is not None and llm_enabled():
+        recs = await call_llm(llm_http, build_singles_prompt(prompt, llm_candidate_count()))
+        if recs:
+            tiers.append("llm-prompt")
+            seen = {(c["title"].lower(), c["artist"].lower()) for c in candidates}
+            for r in recs:
+                key = (str(r.get("title") or "").lower(), str(r.get("artist") or "").lower())
+                if key == ("", "") or key in seen:
+                    continue
+                seen.add(key)
+                candidates.append({
+                    "title": r.get("title") or "",
+                    "artist": r.get("artist") or "",
+                    "genre": r.get("genre") or "",
+                })
+    candidates = candidates[:SINGLES_MAX]
+
+    tracks: list[dict] = []
+    if candidates:
+        tracks = await resolve_recommendations(
+            candidates, musicdl_client, musicbox_client, netease_enabled, build_track,
+            limit=min(target, len(candidates)),
+            lx_client=lx_client, lx_enabled=lx_enabled, lx_sources=lx_sources,
+        )
+    tracks = stamp_playlist_tracks(tracks[:target])
+    picked = pick_playlist_cover_track(tracks)
+    cover_id = str((picked or {}).get("coverId") or (picked or {}).get("guid") or guid)
+    playlist = build_playlist_record(
+        guid=guid,
+        name=playlist_display_name("singles"),
+        cover_id=cover_id,
+        track_count=len(tracks),
+    )
+    payload = {
+        "day": day,
+        "kind": "singles",
+        "guid": guid,
+        "status": "ready" if tracks else "partial",
+        "playlist": playlist,
+        "tracks": tracks,
+        "tiers": tiers,
+        "tierFailures": [],
+        "seedCount": 0,
+        "favoriteCount": 0,
+        "builtAt": int(time.time()),
+    }
+    if tracks:
+        save_daily_cache(user_guid, day, payload, "singles")
+        logger.info("singles recommend %s tracks=%s tiers=%s", guid, len(tracks), ",".join(tiers) or "-")
+    return payload
+
+
 async def get_or_build_daily(
     user_guid: str,
     musicdl_client: httpx.AsyncClient | None,
@@ -1796,6 +1983,20 @@ async def get_or_build_daily(
     if kind == "daily":
         purge_stale_source_slots(day)
     cached = load_daily_cache(user_guid, day, kind)
+    if kind == "singles":
+        # 在线单曲：配置（用户点歌 / 大模型点歌）驱动，不读个人信息也无需逐日重建；
+        # 配置变化时由 app.py 热重载失效缓存。已有任何曲目即视为最终结果。
+        if cached and cached.get("tracks"):
+            _remember_daily_result(user_guid, cached)
+            return cached
+        payload = await build_singles_bundle(
+            user_guid=user_guid, day=day, guid=guid,
+            musicdl_client=musicdl_client, musicbox_client=musicbox_client,
+            llm_http=llm_http, build_track=build_track, netease_enabled=netease_enabled,
+            lx_client=lx_client, lx_enabled=lx_enabled, lx_sources=lx_sources,
+        )
+        _remember_daily_result(user_guid, payload)
+        return payload
     existing = list(cached.get("tracks") or []) if cached else []
     if len(existing) >= target:
         _remember_daily_result(user_guid, cached)

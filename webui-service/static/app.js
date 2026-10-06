@@ -127,6 +127,7 @@ function applyConfigToForm() {
   $("#recommend-category-size").value = v.FNMUSIC_RECOMMEND_CATEGORY_SIZE || "200";
   $("#recommend-size").value = v.FNMUSIC_RECOMMEND_SIZE || "200";
   syncCategoriesPanel();
+  $("#user-songs").value = v.FNMUSIC_USER_SONGS || "";
   $("#tee-enabled").checked = v.FNMUSIC_TEE_SAVE_ENABLED === "true";
   $("#auto-cover").checked = v.FNMUSIC_AUTO_COVER !== "false";
   $("#lyric-auto-dl").checked = v.FNMUSIC_LYRIC_AUTO_DL === "true";
@@ -142,6 +143,7 @@ function applyConfigToForm() {
   $("#llm-base").value = v.FNMUSIC_LLM_BASE_URL || "";
   $("#llm-key").value = v.FNMUSIC_LLM_API_KEY || "";
   $("#llm-model").value = v.FNMUSIC_LLM_MODEL || "";
+  $("#llm-prompt").value = v.FNMUSIC_LLM_PROMPT || "";
   updateLlmFields();
   $("#search-timeout").value = v.FNMUSIC_SEARCH_TIMEOUT || "15";
   $("#search-probe").checked = v.FNMUSIC_SEARCH_PROBE === "true";
@@ -165,6 +167,7 @@ function collectConfig() {
       : "",
     FNMUSIC_RECOMMEND_CATEGORY_SIZE: parseInt($("#recommend-category-size").value || "200", 10) || 200,
     FNMUSIC_RECOMMEND_SIZE: parseInt($("#recommend-size").value || "200", 10) || 200,
+    FNMUSIC_USER_SONGS: $("#user-songs").value.trim(),
     FNMUSIC_TEE_SAVE_ENABLED: $("#tee-enabled").checked,
     FNMUSIC_AUTO_COVER: $("#auto-cover").checked,
     FNMUSIC_LYRIC_AUTO_DL: $("#lyric-auto-dl").checked,
@@ -178,6 +181,7 @@ function collectConfig() {
     FNMUSIC_LLM_BASE_URL: $("#llm-base").value.trim(),
     FNMUSIC_LLM_API_KEY: $("#llm-key").value.trim(),
     FNMUSIC_LLM_MODEL: $("#llm-model").value.trim(),
+    FNMUSIC_LLM_PROMPT: $("#llm-prompt").value.trim(),
     FNMUSIC_SEARCH_TIMEOUT: parseInt($("#search-timeout").value || "15", 10) || 15,
     FNMUSIC_SEARCH_PROBE: $("#search-probe").checked,
     FNMUSIC_NETEASE_MY_PLAYLISTS: $("#netease-my-playlists").checked,
@@ -573,7 +577,7 @@ $("#lx-pick").addEventListener("click", lxPickFromNas);
 })();
 
 /* -------------------------------------------------------------- 表单脏标记 */
-["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path"].forEach((sel) =>
+["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#llm-prompt", "#user-songs", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
 $$("input[name=quality]").forEach((el) => el.addEventListener("change", () => markDirty("音质偏好需保存后生效")));
 ["#recommend-daily", "#search-probe", "#tee-enabled", "#fav-autobind", "#auto-cover", "#lyric-auto-dl", "#netease-my-playlists"].forEach((sel) =>
