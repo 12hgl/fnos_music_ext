@@ -2,7 +2,7 @@
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-12hgl%2Ffnos_music_ext-blue)](https://github.com/12hgl/fnos_music_ext)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.7.3-green.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-2.7.6-green.svg)](VERSION)
 
 > **本项目是 [javycoder/fnos_music_ext](https://github.com/javycoder/fnos_music_ext) 的二开版本。**
 > 衷心感谢原作者 [@javycoder](https://github.com/javycoder) 的杰出工作与开源贡献，原始架构与绝大部分功能均出自原作者
@@ -89,8 +89,10 @@
 
 ### 安装（推荐：应用中心 fpk 包）
 
-从 [GitHub Releases](https://github.com/12hgl/fnos_music_ext/releases) 下载最新 `fnmusic-ext-<版本>.fpk`，在 fnOS「应用中心 → 手动安装」选择该文件，按向导选择**初始音源**即可自动完成安装并启用。
+从 [GitHub Releases](https://github.com/12hgl/fnos_music_ext/releases) 下载对应架构的安装包，在 fnOS「应用中心 → 手动安装」选择该文件，按向导选择**初始音源**即可自动完成安装并启用。
 
+- **x86 设备**：下载 `fnmusic-ext-<版本>.fpk`（manifest `platform=x86`）；
+- **ARM64 设备**（fnOS ARM 版）：下载 `fnmusic-ext-<版本>-arm64.fpk`（manifest `platform=arm`）。音源容器镜像由设备本地 `docker compose build` 原生构建，无需额外操作；
 - 桌面会出现「fnMusic 扩展管理」图标，点击即在飞牛桌面窗口内打开管理页（音源切换 / 扫码登录 / 平台选择 / 洛雪源配置 / 榜单管理）；
 - 选洛雪音源时向导不索要任何源信息：装好后打开管理页，在「音乐源 → 洛雪自定义源」里粘贴脚本 URL、上传电脑 `.js` 文件或从 NAS 选择，测试可用后保存即激活；
 - 选 neteasefree 音源时向导会让你填一个后端 URL（默认 `https://zm.wwoyun.cn`，可留空使用默认）；

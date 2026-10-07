@@ -7,6 +7,7 @@ set -euo pipefail
 #
 # 用法:
 #   packaging/fpk/build.sh                     # 完整打包（fnpack 缺失时自动下载）
+#   packaging/fpk/build.sh --platform x86       # 指定 manifest platform（x86/arm/all，默认 all）
 #   packaging/fpk/build.sh --stage-only DIR    # 只组装不打包（结构测试用）
 #   packaging/fpk/build.sh --fnpack /path/fnpack --out dist
 # 环境变量: FNPACK_VERSION（默认 1.2.3）
@@ -23,6 +24,7 @@ fi
 FNPACK_BIN="${FNPACK:-}"
 STAGE=""
 STAGE_ONLY=0
+PLATFORM="all"
 OUT_DIR="${REPO_ROOT}/dist"
 
 while [ $# -gt 0 ]; do
@@ -31,6 +33,11 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || { echo "用法: $0 --stage-only <dir>" >&2; exit 1; }
             STAGE_ONLY=1
             STAGE="$2"
+            shift 2
+            ;;
+        --platform)
+            [ $# -ge 2 ] || { echo "用法: $0 --platform <x86|arm|all>" >&2; exit 1; }
+            PLATFORM="$2"
             shift 2
             ;;
         --fnpack)
@@ -44,7 +51,7 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         -h|--help)
-            sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '3,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -53,6 +60,11 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+case "${PLATFORM}" in
+    x86|arm|all) ;;
+    *) echo "ERROR: --platform 仅支持 x86|arm|all（收到: ${PLATFORM}）" >&2; exit 1 ;;
+esac
 
 if [ -z "${STAGE}" ]; then
     STAGE="${FPK_DIR}/.build/fpk"
@@ -96,7 +108,8 @@ if [[ "${VERSION}" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
 else
     MANIFEST_VER="$(echo "${VERSION}" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
 fi
-sed "s/@VERSION@/${MANIFEST_VER}/" "${FPK_DIR}/manifest.in" > "${STAGE}/manifest"
+sed -e "s/@VERSION@/${MANIFEST_VER}/" -e "s/@PLATFORM@/${PLATFORM}/" \
+    "${FPK_DIR}/manifest.in" > "${STAGE}/manifest"
 cp "${FPK_DIR}/ICON.PNG" "${FPK_DIR}/ICON_256.PNG" "${STAGE}/"
 cp -a "${FPK_DIR}/app/ui/." "${STAGE}/app/ui/"
 cp -a "${FPK_DIR}/cmd" "${STAGE}/cmd"
@@ -104,7 +117,7 @@ cp -a "${FPK_DIR}/config" "${STAGE}/config"
 cp -a "${FPK_DIR}/wizard" "${STAGE}/wizard"
 chmod +x "${STAGE}"/cmd/*
 
-echo "[fpk] 组装完成: ${STAGE} (version=${VERSION})"
+echo "[fpk] 组装完成: ${STAGE} (version=${VERSION}, platform=${PLATFORM})"
 
 if [ "${STAGE_ONLY}" -eq 1 ]; then
     exit 0
@@ -167,7 +180,12 @@ if [ -z "${BUILT}" ]; then
 fi
 
 mkdir -p "${OUT_DIR}"
-FINAL="${OUT_DIR}/fnmusic-ext-${VERSION}.fpk"
+# 文件名约定：x86/all 用 fnmusic-ext-<版本>.fpk（x86 沿用原有命名），arm 加 -arm64 后缀
+if [ "${PLATFORM}" = "arm" ]; then
+    FINAL="${OUT_DIR}/fnmusic-ext-${VERSION}-arm64.fpk"
+else
+    FINAL="${OUT_DIR}/fnmusic-ext-${VERSION}.fpk"
+fi
 mv "${BUILT}" "${FINAL}"
 ( cd "$(dirname "${FINAL}")" && sha256sum "$(basename "${FINAL}")" > "$(basename "${FINAL}").sha256" )
 

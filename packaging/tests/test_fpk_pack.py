@@ -83,7 +83,33 @@ class TestManifest:
         assert re.fullmatch(r"\d+\.\d+\.\d+", m["version"])
 
     def test_template_has_placeholder(self):
-        assert "@VERSION@" in (FPK_DIR / "manifest.in").read_text()
+        text = (FPK_DIR / "manifest.in").read_text()
+        assert "@VERSION@" in text
+        assert "@PLATFORM@" in text
+
+    @pytest.mark.parametrize(
+        ("platform", "expected"),
+        [("x86", "x86"), ("arm", "arm"), ("all", "all")],
+    )
+    def test_platform_option(self, tmp_path, platform: str, expected: str):
+        out = tmp_path / f"stage-{platform}"
+        subprocess.run(
+            ["bash", str(FPK_DIR / "build.sh"), "--stage-only", str(out), "--platform", platform],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        m = _parse_manifest((out / "manifest").read_text())
+        assert m["platform"] == expected
+
+    def test_platform_rejects_unknown(self, tmp_path):
+        result = subprocess.run(
+            ["bash", str(FPK_DIR / "build.sh"), "--stage-only", str(tmp_path / "x"), "--platform", "mips"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "x86|arm|all" in result.stderr
 
 
 class TestUiConfig:

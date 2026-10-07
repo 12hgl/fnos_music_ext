@@ -3,6 +3,17 @@
 本项目所有显著变更均记录于此文件。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [2.7.6] - 2026-10-07
+
+### 新增
+
+- **ARM64（arm）架构支持**：新增 ARM 版安装包 `fnmusic-ext-<版本>-arm64.fpk`（manifest `platform=arm`），可在飞牛 fnOS ARM 版设备上安装。运行时镜像（`python:3.13-slim` + Debian 的 nodejs/ffmpeg/supervisor）由设备本地 `docker compose build` 原生构建，依赖的编译型轮子（curl_cffi/pillow/pycryptodome/rapidfuzz/orjson/cryptography/lxml/brotli/av/nodejs-wheel 等）均提供 aarch64 版本，无需自建多架构镜像。
+- **打包脚本支持按架构出包**：`packaging/fpk/build.sh` 新增 `--platform x86|arm|all`（默认 `all`），可按架构分别生成安装包；x86 包沿用 `fnmusic-ext-<版本>.fpk`，arm 包命名 `fnmusic-ext-<版本>-arm64.fpk`。
+
+### 变更
+
+- **FPK manifest `platform` 拆分**：原 `all` 拆分为按架构的 `x86` / `arm` 两份包（方案 B），避免部分 fnOS 版本对 `all` 识别不佳导致无法安装。
+
 ## [2.7.5] - 2026-10-06
 
 ### 新增
