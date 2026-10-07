@@ -17,9 +17,10 @@
       （华语/流行/摇滚…，默认见 DEFAULT_CATEGORIES）聚合该分类下热门歌单的曲目，
       曲量大（FNMUSIC_RECOMMEND_CATEGORY_SIZE，默认 200 首）；仅免扫码 neteasefree
       音源支持，musicbox 等返回空即不挂卡。所有用户共用 shared 缓存。
-  - 在线单曲（singles，FNMUSIC_USER_SONGS / FNMUSIC_LLM_PROMPT）：用户显式点歌
-      列表 + 大模型点歌提示生成的只读虚拟歌单，逐首在线检索、可播校验，仅在线
-      不下载；配置任一非空即注入，配置变化经热重载失效重建。
+  - 自定义歌单（custom:<id>）：用户导入的 m3u/m3u8/PLS/CUE 歌单文件，或由
+      大模型「点歌提示」生成的只读虚拟歌单；逐首在线检索、可播校验，仅在线
+      不下载。可导入多个、单独启停，定义存 custom_playlists/<id>.json，改动后
+      由管理台失效缓存即时重建。
 歌单封面取曲：第一个带可用封面直链的在线曲目；无在线封面回落第一首带官方
 coverId 的本地曲目（跳过酷我文本页假链接）。
 密钥只从环境变量读取，绝不写入 CONF / 日志 / 缓存。
@@ -46,12 +47,13 @@ HOT_GUID_PREFIX = "online:playlist:hot:"
 # 分类歌单（华语/流行/摇滚…）：guid 形如 online:playlist:cat:<序号>:<day>。
 # 序号是 FNMUSIC_RECOMMEND_CATEGORIES 配置列表的下标，因此可由 guid 反解出分类名。
 CAT_GUID_PREFIX = "online:playlist:cat:"
-# 在线单曲：用户显式点歌（FNMUSIC_USER_SONGS）或大模型点歌（FNMUSIC_LLM_PROMPT）
-# 生成的只读虚拟歌单（仅在线、不下载），guid 形如 online:playlist:singles:<day>。
+# 自定义歌单：用户导入的 m3u/m3u8/PLS/CUE 歌单文件，或大模型「点歌提示」生成
+# 的只读虚拟歌单（仅在线、不下载）。guid 形如 online:playlist:custom:<id>:<day>。
 # 与分类歌单一样是实例级公共内容，不带用户后缀、所有用户共用同一份缓存。
-SINGLES_GUID_PREFIX = "online:playlist:singles:"
-# 在线单曲候选上限（用户输入 + 大模型生成合计，防止误填超长列表拖垮搜索）
-SINGLES_MAX = 200
+CUSTOM_GUID_PREFIX = "online:playlist:custom:"
+# 单个自定义歌单的曲目上限（防止误导入超长歌单拖垮逐首搜索）
+CUSTOM_MAX = 500
+SUPPORTED_PLAYLIST_EXTS = ("m3u", "m3u8", "pls", "cue")
 # 默认分类（可用 FNMUSIC_RECOMMEND_CATEGORIES 覆盖，逗号分隔；置空=关闭分类歌单）
 DEFAULT_CATEGORIES = ["华语", "流行", "摇滚", "民谣", "电子", "古风", "说唱", "轻音乐", "爵士"]
 # 每个分类歌单的目标曲量（可用 FNMUSIC_RECOMMEND_CATEGORY_SIZE 覆盖，20-1000）
@@ -260,35 +262,225 @@ def default_size() -> int:
     return _env_int("FNMUSIC_RECOMMEND_SIZE", RECOMMEND_SIZE_DEFAULT, 20, 1000)
 
 
-# ---- 在线单曲（用户显式点歌 / 大模型点歌） ----
+# ---- 自定义歌单（导入歌单文件 / 大模型点歌） ----
 
-def user_songs_input() -> str:
-    """用户输入的在线单曲列表原文（FNMUSIC_USER_SONGS，逗号/换行分隔）。"""
-    return (os.environ.get("FNMUSIC_USER_SONGS") or "").strip()
-
-
-def llm_song_prompt() -> str:
-    """大模型点歌提示原文（FNMUSIC_LLM_PROMPT，任意内容）。"""
-    return (os.environ.get("FNMUSIC_LLM_PROMPT") or "").strip()
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
-def parse_user_song_list(text: str) -> list[dict]:
-    """解析「歌曲名1,歌曲名2」形式的点歌列表为候选条目。
+def custom_playlists_dir() -> str:
+    return os.environ.get("FNMUSIC_CUSTOM_PLAYLIST_DIR") or os.path.join(home_dir(), "custom_playlists")
 
-    逗号（中英文）或换行分隔；每项支持「歌名 - 歌手」形式（用空格-空格分隔）以
-    提高匹配精度，否则只按歌名检索。去重后返回 [{title, artist}, ...]。
+
+def safe_playlist_id(pid: str) -> str:
+    """自定义歌单 id 只允许 [A-Za-z0-9_-]，避免路径穿越。"""
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(pid or ""))[:32]
+
+
+def load_custom_playlists() -> list[dict]:
+    """读取自定义歌单定义（custom_playlists/*.json），按创建时间排序。"""
+    root = custom_playlists_dir()
+    out: list[dict] = []
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return out
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(root, name), "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("failed to load custom playlist %s: %s", name, e)
+            continue
+        if not isinstance(data, dict):
+            continue
+        pid = safe_playlist_id(data.get("id") or name[:-5])
+        if not pid:
+            continue
+        data["id"] = pid
+        data["enabled"] = _as_bool(data.get("enabled"), True)
+        out.append(data)
+    out.sort(key=lambda d: (str(d.get("createdAt") or ""), str(d.get("id") or "")))
+    return out
+
+
+def custom_playlist_by_id(pid: str) -> dict | None:
+    pid = safe_playlist_id(pid)
+    if not pid:
+        return None
+    for p in load_custom_playlists():
+        if p.get("id") == pid:
+            return p
+    return None
+
+
+def custom_kinds() -> list[str]:
+    """已启用的自定义歌单 kind 列表（custom:<id>）。"""
+    return [f"custom:{p['id']}" for p in load_custom_playlists() if p.get("enabled", True)]
+
+
+def is_custom_kind(kind: str) -> bool:
+    return str(kind or "").startswith("custom:")
+
+
+def custom_playlist_id(kind: str) -> str:
+    if not is_custom_kind(kind):
+        return ""
+    return safe_playlist_id(str(kind).split(":", 1)[1])
+
+
+def custom_playlist_name(kind: str) -> str:
+    p = custom_playlist_by_id(custom_playlist_id(kind))
+    return str((p or {}).get("name") or "").strip()
+
+
+def custom_kind_enabled(kind: str) -> bool:
+    """该自定义歌单 kind 的定义存在且处于启用态。"""
+    p = custom_playlist_by_id(custom_playlist_id(kind))
+    return bool(p) and bool(p.get("enabled", True))
+
+
+def custom_playlist_entries(kind: str) -> list[dict]:
+    p = custom_playlist_by_id(custom_playlist_id(kind)) or {}
+    out: list[dict] = []
+    for e in p.get("entries") or []:
+        if not isinstance(e, dict):
+            continue
+        title = str(e.get("title") or "").strip()
+        if title:
+            out.append({"title": title, "artist": str(e.get("artist") or "").strip()})
+    return out
+
+
+# ---- 歌单文件解析（m3u / m3u8 / PLS / CUE）→ 歌名+歌手候选 ----
+
+def _title_artist_from_path(path: str) -> tuple[str, str]:
+    """从文件名/路径推断「歌名 + 歌手」：优先「歌手 - 歌名」形式。"""
+    name = os.path.basename(str(path or "").replace("\\", "/")).strip()
+    name = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", name).strip()
+    for sep in (" - ", " – ", " — ", "-"):
+        if sep in name:
+            left, right = name.split(sep, 1)
+            left, right = left.strip(), right.strip()
+            if left and right:
+                return right, left
+    return name, ""
+
+
+def _split_artist_title(meta: str) -> tuple[str, str]:
+    for sep in (" - ", " – ", " — "):
+        if sep in meta:
+            artist, title = meta.split(sep, 1)
+            return title.strip(), artist.strip()
+    return meta.strip(), ""
+
+
+def parse_m3u(text: str) -> list[dict]:
+    """解析 m3u/m3u8：`#EXTINF:时长,歌手 - 歌名` 优先，纯路径行回落到文件名。"""
+    out: list[dict] = []
+    pending: dict | None = None
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.upper().startswith("#EXTINF"):
+            meta = line.split(",", 1)[1] if "," in line else ""
+            title, artist = _split_artist_title(meta)
+            pending = {"title": title, "artist": artist}
+        elif line.startswith("#"):
+            continue
+        else:
+            if pending and pending.get("title"):
+                out.append(pending)
+            else:
+                title, artist = _title_artist_from_path(line)
+                if title:
+                    out.append({"title": title, "artist": artist})
+            pending = None
+    return out
+
+
+def parse_pls(text: str) -> list[dict]:
+    """解析 PLS：FileN/TitleN/ArtistN；缺 Title 时用文件名推断。"""
+    files: dict[int, str] = {}
+    titles: dict[int, str] = {}
+    artists: dict[int, str] = {}
+    for raw in str(text or "").splitlines():
+        m = re.match(r"^(File|Title|Artist)(\d+)\s*=\s*(.*)$", raw.strip(), re.IGNORECASE)
+        if not m:
+            continue
+        key, idx, val = m.group(1).lower(), int(m.group(2)), m.group(3).strip()
+        bucket = files if key == "file" else titles if key == "title" else artists
+        bucket[idx] = val
+    out: list[dict] = []
+    for idx in sorted(files):
+        title, artist = titles.get(idx, ""), artists.get(idx, "")
+        if not title:
+            title, inferred = _title_artist_from_path(files[idx])
+            artist = artist or inferred
+        if title:
+            out.append({"title": title, "artist": artist})
+    return out
+
+
+def _cue_value(line: str) -> str:
+    _, _, rest = line.partition(" ")
+    return rest.strip().strip('"').strip()
+
+
+def parse_cue(text: str) -> list[dict]:
+    """解析 CUE：按 TRACK 分段收集 TITLE/PERFORMER，缺 PERFORMER 回落专辑级。"""
+    out: list[dict] = []
+    cur: dict | None = None
+    album_artist = ""
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        up = line.upper()
+        if up.startswith("TRACK"):
+            if cur and cur.get("title"):
+                out.append(cur)
+            cur = {"title": "", "artist": ""}
+        elif up.startswith("PERFORMER"):
+            val = _cue_value(line)
+            if cur is not None:
+                cur["artist"] = val
+            else:
+                album_artist = val
+        elif up.startswith("TITLE"):
+            if cur is not None:
+                cur["title"] = _cue_value(line)
+    if cur and cur.get("title"):
+        out.append(cur)
+    for e in out:
+        e["artist"] = e.get("artist") or album_artist
+    return out
+
+
+def parse_playlist_text(text: str, filename: str = "") -> tuple[list[dict], str]:
+    """按扩展名解析歌单文本，返回 (去重后的 entries, 格式名)。
+
+    支持 .m3u/.m3u8/.pls/.cue；不支持的格式抛 ValueError。
     """
-    raw = str(text or "").replace("，", ",").replace("\r", "\n").replace(",", "\n")
+    ext = os.path.splitext(str(filename or ""))[1].lower().lstrip(".")
+    if ext in ("m3u", "m3u8"):
+        entries, fmt = parse_m3u(text), "m3u"
+    elif ext == "pls":
+        entries, fmt = parse_pls(text), "pls"
+    elif ext == "cue":
+        entries, fmt = parse_cue(text), "cue"
+    else:
+        raise ValueError("仅支持 .m3u / .m3u8 / .pls / .cue 歌单格式")
     out: list[dict] = []
     seen: set[tuple[str, str]] = set()
-    for line in raw.split("\n"):
-        item = line.strip()
-        if not item:
-            continue
-        title, artist = item, ""
-        sep = item.find(" - ")
-        if sep > 0:
-            title, artist = item[:sep].strip(), item[sep + 3:].strip()
+    for e in entries:
+        title = str(e.get("title") or "").strip()
+        artist = str(e.get("artist") or "").strip()
         if not title:
             continue
         key = (title.lower(), artist.lower())
@@ -296,15 +488,66 @@ def parse_user_song_list(text: str) -> list[dict]:
             continue
         seen.add(key)
         out.append({"title": title, "artist": artist})
-    return out
+    return out[:CUSTOM_MAX], fmt
 
 
-def singles_target_size() -> int:
-    """在线单曲目标曲量：显式列表条数；仅大模型点歌时用候选数（10-60）；上限 SINGLES_MAX。"""
-    n = len(parse_user_song_list(user_songs_input()))
-    if llm_song_prompt():
-        n = max(n, llm_candidate_count())
-    return max(1, min(n, SINGLES_MAX))
+def custom_target_size(kind: str) -> int:
+    """自定义歌单目标曲量：文件导入按条目数、大模型按候选数；上限 CUSTOM_MAX。"""
+    p = custom_playlist_by_id(custom_playlist_id(kind)) or {}
+    if str(p.get("mode") or "file") == "llm":
+        return max(1, min(llm_candidate_count(), CUSTOM_MAX))
+    return max(1, min(len(p.get("entries") or []), CUSTOM_MAX))
+
+
+def save_custom_playlist(data: dict) -> dict:
+    """写入自定义歌单定义（原子写；无 id 则新建）。返回规范化后的定义。"""
+    root = custom_playlists_dir()
+    os.makedirs(root, exist_ok=True)
+    pid = safe_playlist_id(data.get("id")) or uuid4().hex[:12]
+    existing = custom_playlist_by_id(pid) or {}
+    now = int(time.time())
+    raw_entries = data.get("entries") if data.get("entries") is not None else existing.get("entries")
+    entries: list[dict] = []
+    for e in raw_entries or []:
+        if isinstance(e, dict) and str(e.get("title") or "").strip():
+            entries.append({
+                "title": str(e["title"]).strip()[:200],
+                "artist": str(e.get("artist") or "").strip()[:200],
+            })
+    record = {
+        "id": pid,
+        "name": str(data.get("name") or existing.get("name") or "自定义歌单").strip()[:60] or "自定义歌单",
+        "mode": str(data.get("mode") or existing.get("mode") or "file"),
+        "format": str(data.get("format") or existing.get("format") or ""),
+        "entries": entries[:CUSTOM_MAX],
+        "prompt": str(data.get("prompt") if data.get("prompt") is not None else existing.get("prompt") or "").strip(),
+        "enabled": _as_bool(data.get("enabled"), existing.get("enabled", True)),
+        "createdAt": int(existing.get("createdAt") or now),
+        "updatedAt": now,
+    }
+    if not _atomic_write_json(os.path.join(root, f"{pid}.json"), record):
+        raise RuntimeError("写入自定义歌单失败")
+    return record
+
+
+def delete_custom_playlist(pid: str) -> bool:
+    pid = safe_playlist_id(pid)
+    if not pid:
+        return False
+    try:
+        os.remove(os.path.join(custom_playlists_dir(), f"{pid}.json"))
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        logger.warning("failed to delete custom playlist %s: %s", pid, e)
+        return False
+
+
+def invalidate_custom_cache(pid: str) -> int:
+    """失效指定自定义歌单的所有用户缓存（定义变化/删除后调用）。"""
+    pid = safe_playlist_id(pid)
+    return invalidate_kind_cache_all_users(f"custom:{pid}") if pid else 0
 
 
 def is_category_kind(kind: str) -> bool:
@@ -330,21 +573,21 @@ def category_name(kind: str) -> str:
 
 
 def normalize_kind(kind: str) -> str:
-    """归一类歌单类型：daily / hot / singles / cat:<下标>（未知一律 daily）。"""
+    """归一类歌单类型：daily / hot / custom:<id> / cat:<下标>（未知一律 daily）。"""
     k = str(kind or "")
-    if is_category_kind(k):
+    if is_category_kind(k) or is_custom_kind(k):
         return k
-    if k in ("hot", "singles"):
+    if k == "hot":
         return k
     return "daily"
 
 
 def kind_target_size(kind: str) -> int:
     """该类型的列表目标曲量：分类歌单按分类配置、每日/热门按 FNMUSIC_RECOMMEND_SIZE、
-    在线单曲按用户点歌条数。"""
+    自定义歌单按导入条目数或大模型候选数。"""
     kind = normalize_kind(kind)
-    if kind == "singles":
-        return singles_target_size()
+    if is_custom_kind(kind):
+        return custom_target_size(kind)
     return category_size() if is_category_kind(kind) else default_size()
 
 
@@ -356,16 +599,17 @@ def recommend_playlist_guid(kind: str, day: str | None = None, user_guid: str = 
     kind = normalize_kind(kind)
     if kind == "hot":
         prefix = HOT_GUID_PREFIX
-    elif kind == "singles":
-        prefix = SINGLES_GUID_PREFIX
+    elif is_custom_kind(kind):
+        # 自定义歌单是实例级公共歌单：guid 带歌单 id、不带用户后缀（共用同一份缓存）
+        prefix = f"{CUSTOM_GUID_PREFIX}{custom_playlist_id(kind)}:"
     elif is_category_kind(kind):
         # 分类歌单是公共歌单：guid 不带用户后缀（所有用户共用同一份，命中同一缓存）
         prefix = f"{CAT_GUID_PREFIX}{max(category_index(kind), 0)}:"
     else:
         prefix = DAILY_GUID_PREFIX
     day = day or today_key()
-    if is_category_kind(kind) or kind == "singles":
-        # 分类歌单与在线单曲都是实例级公共内容：guid 不带用户后缀（共用同一份缓存）
+    if is_category_kind(kind) or is_custom_kind(kind):
+        # 分类歌单与自定义歌单都是实例级公共内容：guid 不带用户后缀（共用同一份缓存）
         return f"{prefix}{day}"
     suffix = re.sub(r"[^A-Za-z0-9]", "", user_guid)[:12]
     if suffix:
@@ -385,14 +629,17 @@ CHART_GUID_PREFIX = "online:playlist:chart:"
 
 
 def online_playlist_kind(guid: str | None) -> str:
-    """解析推荐歌单 guid 的类型：daily / hot / singles / cat:<下标> / chart，非推荐歌单返回空串。"""
+    """解析推荐歌单 guid 的类型：daily / hot / custom:<id> / cat:<下标> / chart，
+    非推荐歌单返回空串。"""
     s = str(guid or "")
     if s.startswith(DAILY_GUID_PREFIX):
         return "daily"
     if s.startswith(HOT_GUID_PREFIX):
         return "hot"
-    if s.startswith(SINGLES_GUID_PREFIX):
-        return "singles"
+    if s.startswith(CUSTOM_GUID_PREFIX):
+        pid = safe_playlist_id(s[len(CUSTOM_GUID_PREFIX):].split(":", 1)[0])
+        if pid:
+            return f"custom:{pid}"
     if s.startswith(CAT_GUID_PREFIX):
         idx = s[len(CAT_GUID_PREFIX):].split(":", 1)[0]
         if idx.isdigit():
@@ -1034,8 +1281,8 @@ def parse_llm_recommendations(text: str) -> list[dict]:
     return out
 
 
-def build_singles_prompt(prompt: str, count: int) -> str:
-    """「在线单曲」大模型点歌提示：把用户任意描述转成可在线检索的歌单。"""
+def build_llm_songs_prompt(prompt: str, count: int) -> str:
+    """自定义歌单「大模型点歌」提示：把用户任意描述转成可在线检索的歌单。"""
     return f"""你是音乐点歌助手。用户会给出任意需求，请据此挑选 {count} 首适合在线检索的歌曲。
 
 约束：
@@ -1622,9 +1869,9 @@ def _dedupe_extend(base: list[dict], extra: list[dict], limit: int) -> list[dict
 def cache_path(user_guid: str, day: str, kind: str = "daily") -> str:
     kind = normalize_kind(kind)
     token = _kind_file_token(kind)
-    # 分类歌单与在线单曲是公共/实例级歌单，所有用户共用 shared 目录下同一份，
+    # 分类歌单与自定义歌单是公共/实例级歌单，所有用户共用 shared 目录下同一份，
     # 避免重复构建/重复打后端
-    folder = _safe_user_name("shared") if (is_category_kind(kind) or kind == "singles") else _safe_user_name(user_guid)
+    folder = _safe_user_name("shared") if (is_category_kind(kind) or is_custom_kind(kind)) else _safe_user_name(user_guid)
     return os.path.join(recommend_cache_dir(), folder, f"{token}-{day}.json")
 
 
@@ -1677,7 +1924,7 @@ def purge_stale_daily_cache(user_guid: str, keep_day: str) -> None:
 
 
 def invalidate_kind_cache_all_users(kind: str) -> int:
-    """清掉所有用户指定类型的推荐缓存（如在线单曲配置变化后立即重建）。返回删除文件数。"""
+    """清掉所有用户指定类型的推荐缓存（如定义变化后立即重建）。返回删除文件数。"""
     token = _kind_file_token(kind)
     root = recommend_cache_dir()
     try:
@@ -1700,6 +1947,38 @@ def invalidate_kind_cache_all_users(kind: str) -> int:
                 removed += 1
                 logger.info("invalidated recommend cache (%s config changed): %s", token, path)
             except Exception as e:
+                logger.warning("failed to invalidate %s: %s", path, e)
+    return removed
+
+
+def invalidate_all_custom_cache() -> int:
+    """清掉所有用户的自定义歌单缓存（custom_*）。
+
+    自定义歌单定义（custom_playlists/*.json）增删改后由代理调用：任何一条定义的
+    变化都可能影响清单与曲目，统一失效全部自定义歌单缓存，重开按新定义重建。
+    返回删除文件数。
+    """
+    root = recommend_cache_dir()
+    try:
+        users = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+    except OSError:
+        return 0
+    removed = 0
+    for user in users:
+        folder = os.path.join(root, user)
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".json") or not name.startswith("custom_"):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                os.remove(path)
+                removed += 1
+                logger.info("invalidated recommend cache (custom playlists changed): %s", path)
+            except Exception as e:  # noqa: BLE001
                 logger.warning("failed to invalidate %s: %s", path, e)
     return removed
 
@@ -1850,8 +2129,8 @@ def build_playlist_record(
 
 def playlist_display_name(kind: str, day: str | None = None) -> str:
     kind = normalize_kind(kind)
-    if kind == "singles":
-        return "在线单曲"
+    if is_custom_kind(kind):
+        return custom_playlist_name(kind) or "自定义歌单"
     if kind == "hot":
         return "热门推荐"
     if is_category_kind(kind):
@@ -1882,10 +2161,11 @@ def empty_daily_bundle(user_guid: str, kind: str = "daily") -> dict:
     }
 
 
-async def build_singles_bundle(
+async def build_custom_bundle(
     user_guid: str,
     day: str,
     guid: str,
+    kind: str,
     musicdl_client: httpx.AsyncClient | None,
     musicbox_client: httpx.AsyncClient | None,
     llm_http: httpx.AsyncClient | None,
@@ -1895,34 +2175,32 @@ async def build_singles_bundle(
     lx_enabled: bool = False,
     lx_sources: "list[str] | None" = None,
 ) -> dict:
-    """构建「在线单曲」虚拟歌单：显式点歌列表 + 大模型点歌，逐一在线检索可播曲目。
+    """构建「自定义歌单」虚拟歌单：导入文件的曲目，或大模型点歌，逐一在线检索可播曲目。
 
     纯在线、不下载：曲目由音源搜索匹配（复用 resolve_recommendations 的逐首可播
     校验），放入飞牛识别为在线歌单的 isDaily 记录，正常显示在曲库中。
     """
-    target = singles_target_size()
-    candidates: list[dict] = parse_user_song_list(user_songs_input())
+    pdef = custom_playlist_by_id(custom_playlist_id(kind)) or {}
+    target = max(1, min(len(pdef.get("entries") or []) or llm_candidate_count(), CUSTOM_MAX))
+    candidates: list[dict] = []
     tiers: list[str] = []
-    if candidates:
-        tiers.append("user-songs")
 
-    prompt = llm_song_prompt()
-    if prompt and llm_http is not None and llm_enabled():
-        recs = await call_llm(llm_http, build_singles_prompt(prompt, llm_candidate_count()))
-        if recs:
-            tiers.append("llm-prompt")
-            seen = {(c["title"].lower(), c["artist"].lower()) for c in candidates}
+    if str(pdef.get("mode") or "file") == "llm":
+        prompt = str(pdef.get("prompt") or "").strip()
+        if prompt and llm_http is not None and llm_enabled():
+            recs = await call_llm(llm_http, build_llm_songs_prompt(prompt, llm_candidate_count()))
             for r in recs:
-                key = (str(r.get("title") or "").lower(), str(r.get("artist") or "").lower())
-                if key == ("", "") or key in seen:
-                    continue
-                seen.add(key)
-                candidates.append({
-                    "title": r.get("title") or "",
-                    "artist": r.get("artist") or "",
-                    "genre": r.get("genre") or "",
-                })
-    candidates = candidates[:SINGLES_MAX]
+                title = str(r.get("title") or "").strip()
+                if title:
+                    candidates.append({"title": title, "artist": str(r.get("artist") or "").strip()})
+            if candidates:
+                tiers.append("llm-prompt")
+        target = max(1, min(len(candidates) or llm_candidate_count(), CUSTOM_MAX))
+    else:
+        candidates = custom_playlist_entries(kind)
+        if candidates:
+            tiers.append("custom-file")
+    candidates = candidates[:CUSTOM_MAX]
 
     tracks: list[dict] = []
     if candidates:
@@ -1936,13 +2214,13 @@ async def build_singles_bundle(
     cover_id = str((picked or {}).get("coverId") or (picked or {}).get("guid") or guid)
     playlist = build_playlist_record(
         guid=guid,
-        name=playlist_display_name("singles"),
+        name=playlist_display_name(kind),
         cover_id=cover_id,
         track_count=len(tracks),
     )
     payload = {
         "day": day,
-        "kind": "singles",
+        "kind": normalize_kind(kind),
         "guid": guid,
         "status": "ready" if tracks else "partial",
         "playlist": playlist,
@@ -1954,8 +2232,8 @@ async def build_singles_bundle(
         "builtAt": int(time.time()),
     }
     if tracks:
-        save_daily_cache(user_guid, day, payload, "singles")
-        logger.info("singles recommend %s tracks=%s tiers=%s", guid, len(tracks), ",".join(tiers) or "-")
+        save_daily_cache(user_guid, day, payload, kind)
+        logger.info("custom playlist %s tracks=%s tiers=%s", guid, len(tracks), ",".join(tiers) or "-")
     return payload
 
 
@@ -1983,14 +2261,14 @@ async def get_or_build_daily(
     if kind == "daily":
         purge_stale_source_slots(day)
     cached = load_daily_cache(user_guid, day, kind)
-    if kind == "singles":
-        # 在线单曲：配置（用户点歌 / 大模型点歌）驱动，不读个人信息也无需逐日重建；
-        # 配置变化时由 app.py 热重载失效缓存。已有任何曲目即视为最终结果。
+    if is_custom_kind(kind):
+        # 自定义歌单：定义（导入文件 / 大模型点歌）驱动，不读个人信息也无需逐日重建；
+        # 定义变化时由管理台失效缓存。已有任何曲目即视为最终结果。
         if cached and cached.get("tracks"):
             _remember_daily_result(user_guid, cached)
             return cached
-        payload = await build_singles_bundle(
-            user_guid=user_guid, day=day, guid=guid,
+        payload = await build_custom_bundle(
+            user_guid=user_guid, day=day, guid=guid, kind=kind,
             musicdl_client=musicdl_client, musicbox_client=musicbox_client,
             llm_http=llm_http, build_track=build_track, netease_enabled=netease_enabled,
             lx_client=lx_client, lx_enabled=lx_enabled, lx_sources=lx_sources,

@@ -173,10 +173,8 @@ CONF = {
     # 「热门推荐」独立歌单已下线：默认关闭，且 WebUI 不再提供开关（如需恢复可手动设 FNMUSIC_RECOMMEND_HOT=true）
     "recommend_hot": os.environ.get("FNMUSIC_RECOMMEND_HOT", "false").lower() in ("true", "1", "yes"),
     "recommend_daily": os.environ.get("FNMUSIC_RECOMMEND_DAILY", "true").lower() in ("true", "1", "yes"),
-    # 在线单曲（只读虚拟歌单，仅在线不下载）：用户显式点歌列表 + 大模型点歌提示。
-    # 任一非空即注入「在线单曲」歌单；变化经热重载即时重建
-    "user_songs": (os.environ.get("FNMUSIC_USER_SONGS") or "").strip(),
-    "llm_prompt": (os.environ.get("FNMUSIC_LLM_PROMPT") or "").strip(),
+    # 自定义歌单（只读虚拟歌单，仅在线不下载）：定义存 custom_playlists/*.json，
+    # 由管理台增删改；目录变化时代理失效对应缓存并重建（见 _custom_watch_stat）
     # 多排行榜歌单注入（对齐二开分支）：默认开，可分别控制榜单总开关 / 酷狗榜 / 网易榜，
     # 也可用 FNMUSIC_ENABLED_CHARTS 指定白名单（逗号分隔的榜单 id）
     "recommend_charts": os.environ.get("FNMUSIC_RECOMMEND_CHARTS", "true").lower() in ("true", "1", "yes"),
@@ -502,9 +500,6 @@ _ENV_WATCH_KEYS: dict[str, tuple[str, str]] = {
     "FNMUSIC_LIBRARY_SCAN_PATH": ("library_scan_path", "str"),
     "FNMUSIC_RECOMMEND_HOT": ("recommend_hot", "bool"),
     "FNMUSIC_RECOMMEND_DAILY": ("recommend_daily", "bool"),
-    # 在线单曲：用户点歌列表与大模型点歌提示（recommend.py 直接读 os.environ）
-    "FNMUSIC_USER_SONGS": ("user_songs", "str"),
-    "FNMUSIC_LLM_PROMPT": ("llm_prompt", "str"),
     "FNMUSIC_RECOMMEND_CHARTS": ("recommend_charts", "bool"),
     "FNMUSIC_KG_CHARTS": ("kg_charts", "bool"),
     "FNMUSIC_WY_CHARTS": ("wy_charts", "bool"),
@@ -639,8 +634,41 @@ def _env_watch_stat(path: "str | None" = None):
 
 # 音源集合相关的 CONF 键：任一变化意味着推荐缓存里的旧源曲目可能不可播（issue #22）
 _SOURCE_CONF_KEYS = {"musicdl_enabled", "netease_enabled", "neteasefree_enabled", "lx_enabled", "online_sources", "lx_sources"}
-# 在线单曲配置键：变化时仅失效「在线单曲」缓存/任务，不牵连每日/热门推荐当日缓存
-_SINGLES_CONF_KEYS = {"user_songs", "llm_prompt"}
+
+
+def _custom_watch_stat():
+    """自定义歌单目录的签名：[(文件名, mtime_ns, size), ...]。
+
+    管理台增删改自定义歌单（custom_playlists/*.json）后目录签名变化，代理据此
+    失效对应缓存并重建；目录不存在（无自定义歌单）返回 None。
+    """
+    root = dailyrec.custom_playlists_dir()
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return None
+    sig = []
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            st = os.stat(os.path.join(root, name))
+        except OSError:
+            continue
+        sig.append((name, st.st_mtime_ns, st.st_size))
+    return tuple(sig)
+
+
+def _invalidate_custom_kind_tasks() -> int:
+    """失效所有用户的自定义歌单缓存，并取消在途构建/空结果冷却。"""
+    removed = dailyrec.invalidate_all_custom_cache()
+    for key in [k for k in _DAILY_TASKS if ":custom:" in k]:
+        old = _DAILY_TASKS.pop(key, None)
+        if old is not None and not old.done():
+            old.cancel()
+    for key in [k for k in _EMPTY_BUILD_COOLDOWN if ":custom:" in k]:
+        _EMPTY_BUILD_COOLDOWN.pop(key, None)
+    return removed
 
 
 def _cancel_daily_tasks() -> None:
@@ -652,44 +680,37 @@ def _cancel_daily_tasks() -> None:
 
 async def _env_watch_loop() -> None:
     last = _env_watch_stat()
+    last_custom = _custom_watch_stat()
     while True:
         try:
             await asyncio.sleep(_ENV_WATCH_INTERVAL_S)
             cur = _env_watch_stat()
-            if cur is None or cur == last:
+            if cur is not None and cur != last:
+                await asyncio.sleep(_ENV_WATCH_DEBOUNCE_S)
+                settled = _env_watch_stat()
+                if settled == cur:
+                    last = settled
+                    changed = apply_env_hot_reload()
+                    if changed:
+                        _reset_search_cache()
+                        if (_SOURCE_CONF_KEYS | _RECOMMEND_CONF_KEYS) & set(changed):
+                            # issue #22：切换音源/分类配置后当日推荐立即失效，切回歌单按新配置重建，
+                            # 旧源曲目不再残留到当日结束
+                            removed = dailyrec.invalidate_today_cache_all_users()
+                            _cancel_daily_tasks()
+                            logger.info(
+                                "推荐相关配置变化(%s)：已失效当日推荐缓存 %d 个，推荐歌单将按新配置重建",
+                                ",".join(sorted((_SOURCE_CONF_KEYS | _RECOMMEND_CONF_KEYS) & set(changed))), removed,
+                            )
+                        logger.info(".env 热重载生效: %s", ",".join(sorted(changed)))
+            else:
                 last = cur
-                continue
-            await asyncio.sleep(_ENV_WATCH_DEBOUNCE_S)
-            settled = _env_watch_stat()
-            if settled != cur:
-                continue  # 仍在写入，下一轮再看
-            last = settled
-            changed = apply_env_hot_reload()
-            if changed:
-                _reset_search_cache()
-                if (_SOURCE_CONF_KEYS | _RECOMMEND_CONF_KEYS) & set(changed):
-                    # issue #22：切换音源/分类配置后当日推荐立即失效，切回歌单按新配置重建，
-                    # 旧源曲目不再残留到当日结束
-                    removed = dailyrec.invalidate_today_cache_all_users()
-                    _cancel_daily_tasks()
-                    logger.info(
-                        "推荐相关配置变化(%s)：已失效当日推荐缓存 %d 个，推荐歌单将按新配置重建",
-                        ",".join(sorted((_SOURCE_CONF_KEYS | _RECOMMEND_CONF_KEYS) & set(changed))), removed,
-                    )
-                if _SINGLES_CONF_KEYS & set(changed):
-                    # 在线单曲：点歌列表/大模型提示变化后立即失效缓存与在途构建，重开即按新配置重建
-                    removed = dailyrec.invalidate_kind_cache_all_users("singles")
-                    for key in [k for k in _DAILY_TASKS if ":singles:" in k]:
-                        old = _DAILY_TASKS.pop(key, None)
-                        if old is not None and not old.done():
-                            old.cancel()
-                    for key in [k for k in _EMPTY_BUILD_COOLDOWN if ":singles:" in k]:
-                        _EMPTY_BUILD_COOLDOWN.pop(key, None)
-                    logger.info(
-                        "在线单曲配置变化(%s)：已失效在线单曲缓存 %d 个，将按新配置重建",
-                        ",".join(sorted(_SINGLES_CONF_KEYS & set(changed))), removed,
-                    )
-                logger.info(".env 热重载生效: %s", ",".join(sorted(changed)))
+            # 自定义歌单目录（管理台增删改）独立监听：变化即失效对应缓存并重建
+            cur_custom = _custom_watch_stat()
+            if cur_custom != last_custom:
+                last_custom = cur_custom
+                removed = _invalidate_custom_kind_tasks()
+                logger.info("自定义歌单定义变化：已失效自定义歌单缓存 %d 个，将按新定义重建", removed)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -2878,10 +2899,10 @@ async def _warmup_recommend(fastapi_app: FastAPI) -> None:
     shim = _AppShim(fastapi_app)
     kinds = _recommend_kinds_enabled()
     users = _known_recommend_users() if _recommend_kind_enabled("daily") else []
-    jobs: list[tuple[str, str]] = [("shared", k) for k in kinds if dailyrec.is_category_kind(k)]
-    if _recommend_kind_enabled("singles"):
-        # 在线单曲是实例级公共内容（配置驱动、所有用户共用 shared 缓存）
-        jobs.append(("shared", "singles"))
+    jobs: list[tuple[str, str]] = [
+        ("shared", k) for k in kinds
+        if dailyrec.is_category_kind(k) or dailyrec.is_custom_kind(k)
+    ]
     if _recommend_kind_enabled("hot"):
         # 热门推荐缓存按用户分目录（shared 覆盖身份探测失败的会话）
         jobs.append(("shared", "hot"))
@@ -6336,9 +6357,9 @@ def _recommend_kind_enabled(kind: str) -> bool:
     kind = dailyrec.normalize_kind(kind)
     if kind == "hot":
         return bool(CONF.get("recommend_hot", False))
-    if kind == "singles":
-        # 在线单曲：配置了用户点歌列表或大模型点歌提示即注入
-        return bool(CONF.get("user_songs") or CONF.get("llm_prompt"))
+    if dailyrec.is_custom_kind(kind):
+        # 自定义歌单：定义文件存在且处于启用态即注入
+        return dailyrec.custom_kind_enabled(kind)
     if dailyrec.is_category_kind(kind):
         # 分类歌单：配置列表里下标有效即启用（FNMUSIC_RECOMMEND_CATEGORIES 置空=关闭）
         return 0 <= dailyrec.category_index(kind) < len(dailyrec.category_list())
@@ -6347,8 +6368,9 @@ def _recommend_kind_enabled(kind: str) -> bool:
 
 def _recommend_kinds_enabled() -> list[str]:
     """按开关返回要注入的推荐歌单类型（顺序即歌单列表顺序）：
-    每日推荐、热门推荐、在线单曲，随后是配置的每个分类歌单（华语/流行…）。"""
-    kinds = [k for k in ("daily", "hot", "singles") if _recommend_kind_enabled(k)]
+    每日推荐、热门推荐、各自定义歌单，随后是配置的每个分类歌单（华语/流行…）。"""
+    kinds = [k for k in ("daily", "hot") if _recommend_kind_enabled(k)]
+    kinds.extend(dailyrec.custom_kinds())
     kinds.extend(f"cat:{i}" for i in range(len(dailyrec.category_list())))
     return kinds
 
@@ -6375,8 +6397,8 @@ def _recommend_injectable_kinds(user_guid: str) -> list[str]:
     """
     kinds = _recommend_kinds_enabled()
     if _is_shared_user_guid(user_guid):
-        # 热门推荐/分类歌单/在线单曲都是公共或实例级内容（不读个人历史/收藏），shared 会话同样注入
-        return [k for k in kinds if k == "hot" or k == "singles" or dailyrec.is_category_kind(k)]
+        # 热门推荐/分类歌单/自定义歌单都是公共或实例级内容（不读个人历史/收藏），shared 会话同样注入
+        return [k for k in kinds if k == "hot" or dailyrec.is_custom_kind(k) or dailyrec.is_category_kind(k)]
     return kinds
 
 
@@ -6429,7 +6451,7 @@ async def _ensure_daily_task(request: Request, user_guid: str, kind: str = "dail
         recommend_daily=bool(CONF.get("recommend_daily", True)),
         kind=kind,
     )
-    if dailyrec.is_category_kind(kind):
+    if dailyrec.is_category_kind(kind) or dailyrec.is_custom_kind(kind):
         async def _limited(_coro=build_coro):
             async with _CAT_BUILD_SEM:
                 return await _coro
@@ -6835,8 +6857,8 @@ async def playlist_list(request: Request):
             logger.warning("%s recommend list inject failed: %s", kind, e)
             continue
         tracks = bundle.get("tracks") or []
-        if kind not in ("daily", "singles") and not tracks:
-            # 热门/分类歌单构建失败或无可用内容时不挂空壳（每日推荐/在线单曲保留占位等待后台生成）
+        if kind != "daily" and not tracks:
+            # 热门/分类/自定义歌单构建失败或无可用内容时不挂空壳（每日推荐保留占位等待后台生成）
             continue
         rec = _playlist_public_fields(bundle.get("playlist") or {}, tracks)
         rec["trackCount"] = len(tracks)

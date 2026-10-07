@@ -58,6 +58,8 @@ function clearDirty() {
 function switchPage(page) {
   $$(".page").forEach((el) => el.classList.toggle("active", el.id === "page-" + page));
   $$("[data-page]").forEach((el) => el.classList.toggle("active", el.dataset.page === page));
+  if (page === "playlist") loadCustomPlaylists();
+  if (page === "about") loadAbout();
 }
 $$("[data-page]").forEach((btn) => btn.addEventListener("click", () => switchPage(btn.dataset.page)));
 
@@ -127,7 +129,6 @@ function applyConfigToForm() {
   $("#recommend-category-size").value = v.FNMUSIC_RECOMMEND_CATEGORY_SIZE || "200";
   $("#recommend-size").value = v.FNMUSIC_RECOMMEND_SIZE || "200";
   syncCategoriesPanel();
-  $("#user-songs").value = v.FNMUSIC_USER_SONGS || "";
   $("#tee-enabled").checked = v.FNMUSIC_TEE_SAVE_ENABLED === "true";
   $("#auto-cover").checked = v.FNMUSIC_AUTO_COVER !== "false";
   $("#lyric-auto-dl").checked = v.FNMUSIC_LYRIC_AUTO_DL === "true";
@@ -143,7 +144,6 @@ function applyConfigToForm() {
   $("#llm-base").value = v.FNMUSIC_LLM_BASE_URL || "";
   $("#llm-key").value = v.FNMUSIC_LLM_API_KEY || "";
   $("#llm-model").value = v.FNMUSIC_LLM_MODEL || "";
-  $("#llm-prompt").value = v.FNMUSIC_LLM_PROMPT || "";
   updateLlmFields();
   $("#search-timeout").value = v.FNMUSIC_SEARCH_TIMEOUT || "15";
   $("#search-probe").checked = v.FNMUSIC_SEARCH_PROBE === "true";
@@ -167,7 +167,6 @@ function collectConfig() {
       : "",
     FNMUSIC_RECOMMEND_CATEGORY_SIZE: parseInt($("#recommend-category-size").value || "200", 10) || 200,
     FNMUSIC_RECOMMEND_SIZE: parseInt($("#recommend-size").value || "200", 10) || 200,
-    FNMUSIC_USER_SONGS: $("#user-songs").value.trim(),
     FNMUSIC_TEE_SAVE_ENABLED: $("#tee-enabled").checked,
     FNMUSIC_AUTO_COVER: $("#auto-cover").checked,
     FNMUSIC_LYRIC_AUTO_DL: $("#lyric-auto-dl").checked,
@@ -181,7 +180,6 @@ function collectConfig() {
     FNMUSIC_LLM_BASE_URL: $("#llm-base").value.trim(),
     FNMUSIC_LLM_API_KEY: $("#llm-key").value.trim(),
     FNMUSIC_LLM_MODEL: $("#llm-model").value.trim(),
-    FNMUSIC_LLM_PROMPT: $("#llm-prompt").value.trim(),
     FNMUSIC_SEARCH_TIMEOUT: parseInt($("#search-timeout").value || "15", 10) || 15,
     FNMUSIC_SEARCH_PROBE: $("#search-probe").checked,
     FNMUSIC_NETEASE_MY_PLAYLISTS: $("#netease-my-playlists").checked,
@@ -577,12 +575,12 @@ $("#lx-pick").addEventListener("click", lxPickFromNas);
 })();
 
 /* -------------------------------------------------------------- 表单脏标记 */
-["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#llm-prompt", "#user-songs", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path"].forEach((sel) =>
+["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
 $$("input[name=quality]").forEach((el) => el.addEventListener("change", () => markDirty("音质偏好需保存后生效")));
 ["#recommend-daily", "#search-probe", "#tee-enabled", "#fav-autobind", "#auto-cover", "#lyric-auto-dl", "#netease-my-playlists"].forEach((sel) =>
   $(sel).addEventListener("change", () => markDirty()));
-["#recommend-categories", "#recommend-category-size"].forEach((sel) =>
+["#recommend-categories", "#recommend-category-size", "#recommend-size"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
 $("#recommend-categories-enabled").addEventListener("change", () => { syncCategoriesPanel(); markDirty(); });
 
@@ -724,6 +722,198 @@ $("#btn-llm-reset").addEventListener("click", () => {
   updateLlmFields();
   markDirty("大模型已恢复内置 Kilo 默认");
 });
+
+/* -------------------------------------------------------------- 自定义歌单 */
+let customPlaylists = [];
+let cpFile = { name: "", text: "" };  // 已选歌单文件（名称 + 文本内容）
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function cpMode() {
+  const el = $$("input[name=cp-mode]").find((x) => x.checked);
+  return (el && el.value) || "file";
+}
+
+function syncCpPanels() {
+  const mode = cpMode();
+  $("#cp-file-panel").hidden = mode !== "file";
+  $("#cp-llm-panel").hidden = mode !== "llm";
+}
+$$("input[name=cp-mode]").forEach((el) => el.addEventListener("change", syncCpPanels));
+
+function renderCustomPlaylists() {
+  const box = $("#custom-playlist-list");
+  if (!box) return;
+  if (!customPlaylists.length) {
+    box.innerHTML = `<div class="playlist-empty">还没有自定义歌单，可在下方导入歌单文件或让大模型生成。</div>`;
+    return;
+  }
+  box.innerHTML = customPlaylists.map((p) => {
+    const meta = p.mode === "llm"
+      ? `大模型点歌 · ${p.prompt ? "已配置提示" : "未配置提示"}`
+      : `${p.entryCount} 首 · ${(p.format || "文件").toUpperCase()}`;
+    return `<div class="playlist-item ${p.enabled ? "" : "disabled"}" data-id="${p.id}">
+      <div class="pl-main">
+        <div class="pl-name">${escapeHtml(p.name)}</div>
+        <div class="pl-meta">${escapeHtml(meta)}</div>
+      </div>
+      <span class="pl-badge">${p.enabled ? "已启用" : "已关闭"}</span>
+      <div class="pl-actions">
+        <button class="btn pl-toggle" data-id="${p.id}">${p.enabled ? "关闭" : "启用"}</button>
+        <button class="btn pl-del" data-id="${p.id}">删除</button>
+      </div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".pl-toggle").forEach((b) =>
+    b.addEventListener("click", () => toggleCustomPlaylist(b.dataset.id)));
+  box.querySelectorAll(".pl-del").forEach((b) =>
+    b.addEventListener("click", () => deleteCustomPlaylist(b.dataset.id)));
+}
+
+async function loadCustomPlaylists() {
+  try {
+    const data = await api("/api/custom-playlists");
+    customPlaylists = data.playlists || [];
+  } catch (_) {
+    customPlaylists = [];
+  }
+  renderCustomPlaylists();
+}
+
+async function toggleCustomPlaylist(id) {
+  const p = customPlaylists.find((x) => x.id === id);
+  if (!p) return;
+  try {
+    await api("/api/custom-playlists/" + encodeURIComponent(id), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !p.enabled }),
+    });
+    toast(p.enabled ? "已关闭歌单" : "已启用歌单", "ok");
+    await loadCustomPlaylists();
+  } catch (exc) {
+    toast("操作失败：" + exc.message, "fail");
+  }
+}
+
+async function deleteCustomPlaylist(id) {
+  const p = customPlaylists.find((x) => x.id === id);
+  const label = p ? p.name : id;
+  if (typeof window !== "undefined" && window.confirm && !window.confirm(`确定删除自定义歌单「${label}」？`)) return;
+  try {
+    await api("/api/custom-playlists/" + encodeURIComponent(id), { method: "DELETE" });
+    toast("已删除歌单", "ok");
+    await loadCustomPlaylists();
+  } catch (exc) {
+    toast("删除失败：" + exc.message, "fail");
+  }
+}
+
+$("#cp-upload").addEventListener("click", () => $("#cp-file").click());
+$("#cp-file").addEventListener("change", async () => {
+  const file = $("#cp-file").files && $("#cp-file").files[0];
+  if (!file) return;
+  if (!/\.(m3u8?|pls|cue)$/i.test(file.name)) {
+    toast("仅支持 .m3u / .m3u8 / .pls / .cue 歌单文件", "fail");
+    return;
+  }
+  try {
+    cpFile = { name: file.name, text: await file.text() };
+    $("#cp-file-note").textContent = `已选择：${file.name}`;
+    if (!$("#cp-name").value.trim()) $("#cp-name").value = file.name.replace(/\.[^.]+$/, "");
+  } catch (exc) {
+    toast("读取文件失败：" + exc.message, "fail");
+  } finally {
+    $("#cp-file").value = "";
+  }
+});
+
+async function createCustomPlaylist() {
+  const mode = cpMode();
+  const payload = { name: $("#cp-name").value.trim(), mode };
+  if (mode === "llm") {
+    payload.prompt = $("#cp-prompt").value.trim();
+    if (!payload.prompt) { toast("请填写点歌提示", "fail"); return; }
+  } else {
+    if (!cpFile.text) { toast("请先选择要导入的歌单文件", "fail"); return; }
+    payload.filename = cpFile.name;
+    payload.text = cpFile.text;
+  }
+  const btn = $("#cp-create");
+  btn.disabled = true;
+  btn.textContent = "创建中…";
+  try {
+    await api("/api/custom-playlists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast(mode === "llm" ? "已创建大模型歌单（后台生成中）" : "已导入歌单", "ok");
+    $("#cp-name").value = "";
+    $("#cp-prompt").value = "";
+    cpFile = { name: "", text: "" };
+    $("#cp-file-note").textContent = "未选择文件";
+    await loadCustomPlaylists();
+  } catch (exc) {
+    toast("创建失败：" + exc.message, "fail");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "创建歌单";
+  }
+}
+$("#cp-create").addEventListener("click", createCustomPlaylist);
+
+/* -------------------------------------------------------------- 关于 / 更新 */
+async function loadAbout() {
+  try {
+    const data = await api("/api/about");
+    $("#about-version").textContent = "v" + (data.version || "-");
+    const repo = $("#about-repo");
+    repo.href = data.repo_url || "#";
+    repo.textContent = (data.repo_url || "").replace(/^https?:\/\//, "");
+  } catch (exc) {
+    $("#about-version").textContent = "读取失败：" + exc.message;
+  }
+}
+
+async function checkUpdate() {
+  const box = $("#about-update");
+  const btn = $("#about-check");
+  box.hidden = false;
+  box.className = "report";
+  box.textContent = "正在访问仓库 update.json 检测更新…";
+  $("#about-check-note").textContent = "";
+  btn.disabled = true;
+  try {
+    const data = await api("/api/about/update");
+    if (!data.ok) {
+      box.className = "report fail";
+      box.textContent = data.error || "检测失败";
+      return;
+    }
+    const latest = data.latest || {};
+    if (data.updateAvailable) {
+      box.className = "report ok";
+      box.innerHTML =
+        `<div class="kv"><b>发现新版本</b>v${escapeHtml(latest.version)}${latest.date ? "（" + escapeHtml(latest.date) + "）" : ""}</div>` +
+        `<div class="kv"><b>当前版本</b>v${escapeHtml(data.current)}</div>` +
+        `<div class="kv"><b>更新内容</b>${escapeHtml(latest.notes || "见仓库更新说明").replace(/\n/g, "<br>")}</div>`;
+      $("#about-check-note").textContent = "可前往仓库 Releases 下载新版";
+    } else {
+      box.className = "report ok";
+      box.textContent = `已是最新版本（v${data.current}）`;
+    }
+  } catch (exc) {
+    box.className = "report fail";
+    box.textContent = "检测失败：" + exc.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("#about-check").addEventListener("click", checkUpdate);
 
 /* -------------------------------------------------------------- 启动 */
 (async function boot() {

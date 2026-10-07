@@ -20,11 +20,12 @@
       <nav class="nav" id="nav">
         <button class="nav-item active" data-page="overview">概览</button>
         <button class="nav-item" data-page="source">音乐源</button>
-        <button class="nav-item" data-page="quality">播放与推荐</button>
+        <button class="nav-item" data-page="playlist">歌单</button>
+        <button class="nav-item" data-page="playback">播放</button>
         <button class="nav-item" data-page="charts">榜单管理</button>
         <button class="nav-item" data-page="search">搜索</button>
         <button class="nav-item" data-page="tee">边听边存</button>
-        <button class="nav-item" data-page="llm">高级 · 大模型</button>
+        <button class="nav-item" data-page="about">关于</button>
       </nav>
       <div class="sidebar-foot" id="sidebar-foot"></div>
     </aside>
@@ -140,17 +141,12 @@
         </div>
       </section>
 
-      <!-- 播放与推荐 -->
-      <section class="page" id="page-quality">
-        <h2>播放与推荐</h2>
-        <div class="card">
-          <div class="card-title">音质偏好</div>
-          <div class="radio-list" id="quality-list">
-            <label><input type="radio" name="quality" value="high"><div><b>高音质</b><span>优先最高档，失败逐级向下</span></div></label>
-            <label><input type="radio" name="quality" value="balanced"><div><b>平衡</b><span>取中间档（偶数档取中间偏高），失败先降后升</span></div></label>
-            <label><input type="radio" name="quality" value="smooth"><div><b>流畅</b><span>优先最低档，最快出声</span></div></label>
-          </div>
-        </div>
+      <!-- 歌单（推荐 / 自定义歌单 / 大模型 统一管理） -->
+      <section class="page" id="page-playlist">
+        <h2>歌单</h2>
+        <p class="hint">推荐、自定义歌单与大模型统一在这里管理，样式一致、改动即时生效。</p>
+
+        <!-- 推荐 -->
         <div class="card">
           <div class="card-title">推荐</div>
           <label class="switch-row"><span>每日推荐<div class="sub">独立「每日推荐」歌单；其他音源在配置大模型后生效</div></span><input type="checkbox" id="recommend-daily"></label>
@@ -160,10 +156,67 @@
           <label class="field"><span>每日/热门曲量</span><input class="input" id="recommend-size" type="number" min="20" max="1000" step="10" placeholder="200"></label>
           <p class="hint">每日/热门推荐的目标曲量，默认 200。每日推荐由网易推荐歌单聚合补齐到此数量；改大后当天缓存会重建，可在软件启动预热后稍等片刻。</p>
         </div>
+
+        <!-- 自定义歌单 -->
         <div class="card">
-          <div class="card-title">在线单曲</div>
-          <label class="field"><span>歌曲列表</span><textarea class="input" id="user-songs" rows="3" placeholder="歌曲名1,歌曲名2,歌曲名3&#10;也可用「歌名 - 歌手」提高匹配精度，逗号或换行分隔"></textarea></label>
-          <p class="hint">按「歌曲名」逐一在线检索并生成「在线单曲」歌单，<strong>仅在线播放、不下载</strong>，但会正常显示在曲库歌单中。留空即不生成；保存后立即生效。</p>
+          <div class="card-title">自定义歌单</div>
+          <p class="hint">导入常用歌单文件（<strong>.m3u / .m3u8 / .pls / .cue</strong>）或由内置大模型按提示生成；逐首在线检索、可播校验，<strong>仅在线播放、不下载</strong>，会显示在音乐 App 的曲库歌单中。可单独启用/关闭或删除，改动即时生效。</p>
+          <div id="custom-playlist-list" class="playlist-list"></div>
+
+          <div class="subblock">
+            <div class="card-title sub">新增自定义歌单</div>
+            <label class="field"><span>名称（留空自动取名）</span><input class="input" id="cp-name" placeholder="我的歌单"></label>
+            <div class="radio-list" id="cp-mode">
+              <label><input type="radio" name="cp-mode" value="file" checked><div><b>导入歌单文件</b><span>支持 .m3u / .m3u8 / .pls / .cue</span></div></label>
+              <label><input type="radio" name="cp-mode" value="llm"><div><b>大模型点歌</b><span>填写任意提示，由大模型生成歌曲列表</span></div></label>
+            </div>
+            <div id="cp-file-panel">
+              <div class="btn-row">
+                <input type="file" id="cp-file" accept=".m3u,.m3u8,.pls,.cue" hidden>
+                <button class="btn" id="cp-upload">选择歌单文件</button>
+                <span id="cp-file-note" class="muted">未选择文件</span>
+              </div>
+            </div>
+            <div id="cp-llm-panel" hidden>
+              <label class="field"><span>点歌提示</span><textarea class="input" id="cp-prompt" rows="3" placeholder="例如：来 20 首周杰伦的经典歌曲；或：适合雨天听的华语民谣"></textarea></label>
+            </div>
+            <div class="btn-row">
+              <button class="btn primary" id="cp-create">创建歌单</button>
+              <span id="cp-create-note" class="muted"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 大模型 -->
+        <div class="card">
+          <div class="card-title">大模型</div>
+          <p class="hint">大模型用于每日推荐的智能兜底，也支持「自定义歌单」里的点歌生成。默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
+          <label class="field"><span>接入方</span>
+            <select class="input" id="llm-provider">
+              <option value="kilo">内置 Kilo AI Gateway（推荐，免配置）</option>
+              <option value="custom">自定义 OpenAI 兼容接口</option>
+              <option value="none">关闭大模型</option>
+            </select>
+          </label>
+          <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="留空使用内置 Kilo；自定义时如 https://api.example.com/v1"></label>
+          <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="内置 Kilo 免费模型可留空；自定义必填"></label>
+          <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="kilo-auto/free，或自定义 provider/model"></label>
+          <div class="chart-actions">
+            <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 播放 -->
+      <section class="page" id="page-playback">
+        <h2>播放</h2>
+        <div class="card">
+          <div class="card-title">音质偏好</div>
+          <div class="radio-list" id="quality-list">
+            <label><input type="radio" name="quality" value="high"><div><b>高音质</b><span>优先最高档，失败逐级向下</span></div></label>
+            <label><input type="radio" name="quality" value="balanced"><div><b>平衡</b><span>取中间档（偶数档取中间偏高），失败先降后升</span></div></label>
+            <label><input type="radio" name="quality" value="smooth"><div><b>流畅</b><span>优先最低档，最快出声</span></div></label>
+          </div>
         </div>
       </section>
 
@@ -245,26 +298,19 @@
         </div>
       </section>
 
-      <!-- LLM -->
-      <section class="page" id="page-llm">
-        <h2>高级 · 大模型</h2>
+      <!-- 关于 -->
+      <section class="page" id="page-about">
+        <h2>关于</h2>
         <div class="card">
-          <p class="hint">大模型用于每日推荐的智能兜底。默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
-          <label class="field"><span>接入方</span>
-            <select class="input" id="llm-provider">
-              <option value="kilo">内置 Kilo AI Gateway（推荐，免配置）</option>
-              <option value="custom">自定义 OpenAI 兼容接口</option>
-              <option value="none">关闭大模型</option>
-            </select>
-          </label>
-          <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="留空使用内置 Kilo；自定义时如 https://api.example.com/v1"></label>
-          <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="内置 Kilo 免费模型可留空；自定义必填"></label>
-          <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="kilo-auto/free，或自定义 provider/model"></label>
-          <label class="field"><span>点歌提示（任意内容）</span><textarea class="input" id="llm-prompt" rows="3" placeholder="例如：来 20 首周杰伦的经典歌曲&#10;或：适合雨天听的华语民谣"></textarea></label>
-          <p class="hint">填写后，大模型会据此生成歌曲列表并加入「在线单曲」歌单（仅在线、不下载）。留空即不使用；保存后立即生效。</p>
-          <div class="chart-actions">
-            <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
+          <div class="card-title">fnmusic-ext 管理台</div>
+          <div class="kv"><b>当前版本</b><span id="about-version">加载中…</span></div>
+          <div class="kv"><b>开源仓库</b><a id="about-repo" href="#" target="_blank" rel="noopener noreferrer">-</a></div>
+          <p class="hint">感兴趣点个 star 吧！</p>
+          <div class="btn-row">
+            <button class="btn primary" id="about-check">检测更新</button>
+            <span id="about-check-note" class="muted"></span>
           </div>
+          <div id="about-update" class="report" hidden></div>
         </div>
       </section>
     </main>
@@ -274,11 +320,12 @@
   <nav class="bottom-nav" id="bottom-nav">
     <button class="nav-item active" data-page="overview">概览</button>
     <button class="nav-item" data-page="source">音源</button>
-    <button class="nav-item" data-page="quality">播放</button>
+    <button class="nav-item" data-page="playlist">歌单</button>
+    <button class="nav-item" data-page="playback">播放</button>
     <button class="nav-item" data-page="charts">榜单</button>
     <button class="nav-item" data-page="search">搜索</button>
     <button class="nav-item" data-page="tee">缓存</button>
-    <button class="nav-item" data-page="llm">高级</button>
+    <button class="nav-item" data-page="about">关于</button>
   </nav>
 
   <!-- 保存条 -->

@@ -12,6 +12,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -37,10 +38,15 @@ try:  # 榜单定义复用 proxy/charts.py，单一数据源；缺失时榜单�
 except Exception:  # noqa: BLE001
     ALL_CHARTS, KG_CHARTS, WY_CHARTS = [], [], []
 
+try:  # 自定义歌单定义/解析复用 proxy/recommend.py，单一数据源
+    from proxy import recommend as dailyrec  # noqa: E402
+except Exception:  # noqa: BLE001
+    dailyrec = None
+
 logger = logging.getLogger("webui_service")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-SERVICE_VERSION = "2.0.0"
+SERVICE_VERSION = "2.8.0"
 
 CONF = {
     "repo_dir": os.environ.get("WEBUI_REPO_DIR", "/repo"),
@@ -55,6 +61,23 @@ CONF = {
 ENV_PATH = Path(CONF["repo_dir"]) / ".env"
 VERSION_PATH = Path(CONF["repo_dir"]) / "VERSION"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# 「关于」页：仓库地址与在线更新清单（update.json）。清单里记录最新版本号与更新内容，
+# 关于页通过访问该文件检测更新；可用 WEBUI_REPO_URL / WEBUI_UPDATE_URL 覆盖。
+REPO_URL = os.environ.get("WEBUI_REPO_URL", "https://github.com/12hgl/fnos_music_ext")
+UPDATE_URL = os.environ.get(
+    "WEBUI_UPDATE_URL",
+    "https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/update.json",
+)
+
+# 支持导入的自定义歌单文件格式（与 proxy/recommend.py SUPPORTED_PLAYLIST_EXTS 一致）
+PLAYLIST_EXTS = ("m3u", "m3u8", "pls", "cue")
+
+
+def custom_playlists_dir() -> Path:
+    """自定义歌单定义目录（与 proxy/recommend.py 同源：FNMUSIC_CUSTOM_PLAYLIST_DIR 优先）。"""
+    env = (os.environ.get("FNMUSIC_CUSTOM_PLAYLIST_DIR") or "").strip()
+    return Path(env) if env else (Path(CONF["repo_dir"]) / "custom_playlists")
 
 # 音源进程 ↔ 启用开关（四选一互斥）
 PROVIDERS = {
@@ -80,7 +103,6 @@ SCHEMA: dict[str, dict] = {
     "FNMUSIC_RECOMMEND_CATEGORIES": {"kind": "csv", "default": "华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士", "group": "recommend", "reload": "hot", "label": "分类歌单（华语/流行…，逗号分隔）"},
     "FNMUSIC_RECOMMEND_CATEGORY_SIZE": {"kind": "int", "default": "200", "min": 20, "max": 1000, "group": "recommend", "reload": "hot", "label": "每个分类歌单目标曲量"},
     "FNMUSIC_RECOMMEND_SIZE": {"kind": "int", "default": "200", "min": 20, "max": 1000, "group": "recommend", "reload": "hot", "label": "每日/热门推荐目标曲量"},
-    "FNMUSIC_USER_SONGS": {"kind": "str", "default": "", "group": "recommend", "reload": "hot", "label": "在线单曲列表（歌曲名1,歌曲名2，仅在线不下载）"},
     "FNMUSIC_RECOMMEND_CHARTS": {"kind": "bool", "default": "true", "group": "charts", "reload": "hot", "label": "排行榜歌单总开关"},
     "FNMUSIC_ENABLED_CHARTS": {"kind": "str", "default": "", "group": "charts", "reload": "hot", "label": "自定义启用的榜单 ID 列表"},
     "FNMUSIC_TEE_SAVE_ENABLED": {"kind": "bool", "default": "true", "group": "tee", "reload": "hot", "label": "边听边存"},
@@ -96,7 +118,6 @@ SCHEMA: dict[str, dict] = {
     "FNMUSIC_LLM_BASE_URL": {"kind": "str", "default": "", "group": "llm", "reload": "hot", "label": "OpenAI 兼容 Base URL（留空=内置 Kilo）"},
     "FNMUSIC_LLM_API_KEY": {"kind": "secret", "default": "", "group": "llm", "reload": "hot", "label": "API Key（内置 Kilo 免费模型可留空）"},
     "FNMUSIC_LLM_MODEL": {"kind": "str", "default": "kilo-auto/free", "group": "llm", "reload": "hot", "label": "模型"},
-    "FNMUSIC_LLM_PROMPT": {"kind": "str", "default": "", "group": "llm", "reload": "hot", "label": "大模型点歌提示（任意内容，生成「在线单曲」歌单）"},
     "FNMUSIC_SEARCH_TIMEOUT": {"kind": "int", "default": "15", "min": 1, "max": 60, "group": "search", "reload": "hot", "label": "搜索超时时间"},
     "FNMUSIC_SEARCH_PROBE": {"kind": "bool", "default": "false", "group": "search", "reload": "hot", "label": "逐曲探活(beta)"},
     "FNMUSIC_NETEASE_MY_PLAYLISTS": {"kind": "bool", "default": "false", "group": "source", "reload": "hot", "label": "网易账号歌单"},
@@ -694,6 +715,164 @@ async def netease_qr(unikey: str = Query(...)):
     buf = io.BytesIO()
     img.save(buf)
     return Response(content=buf.getvalue(), media_type="image/svg+xml")
+
+
+# --------------------------------------------- 自定义歌单（导入 m3u/PLS/CUE 或大模型） --
+
+class CustomPlaylistBody(BaseModel):
+    name: str = ""
+    mode: str = "file"          # file（导入歌单文件）| llm（大模型点歌）
+    filename: str = ""
+    text: str = ""              # 导入文件的内容（前端读取后回传）
+    prompt: str = ""
+    entries: "list | None" = None
+    enabled: "bool | None" = None
+
+
+def _require_recommend():
+    if dailyrec is None:
+        raise HTTPException(status_code=503, detail="推荐模块不可用（proxy/recommend.py 缺失）")
+    return dailyrec
+
+
+def _default_playlist_name(filename: str) -> str:
+    stem = Path(str(filename or "")).stem.strip()
+    return stem[:60] or "自定义歌单"
+
+
+def _playlist_summary(rec: dict) -> dict:
+    return {
+        "id": rec.get("id") or "",
+        "name": rec.get("name") or "自定义歌单",
+        "mode": rec.get("mode") or "file",
+        "format": rec.get("format") or "",
+        "prompt": rec.get("prompt") or "",
+        "enabled": bool(rec.get("enabled", True)),
+        "entryCount": len(rec.get("entries") or []),
+        "createdAt": rec.get("createdAt") or 0,
+        "updatedAt": rec.get("updatedAt") or 0,
+    }
+
+
+@app.get("/api/custom-playlists")
+async def api_custom_playlists():
+    rec = _require_recommend()
+    return {
+        "ok": True,
+        "playlists": [_playlist_summary(p) for p in rec.load_custom_playlists()],
+        "supported_exts": list(PLAYLIST_EXTS),
+    }
+
+
+@app.post("/api/custom-playlists")
+async def api_custom_playlist_create(body: CustomPlaylistBody):
+    rec = _require_recommend()
+    mode = "llm" if str(body.mode or "").strip().lower() == "llm" else "file"
+    name = (body.name or "").strip()
+    data: dict = {"name": name, "mode": mode, "enabled": True if body.enabled is None else bool(body.enabled)}
+    if mode == "llm":
+        prompt = (body.prompt or "").strip()
+        if not prompt:
+            raise HTTPException(status_code=400, detail="大模型点歌需要填写提示内容")
+        data["prompt"] = prompt
+        data["entries"] = []
+        if not name:
+            data["name"] = prompt[:30]
+    else:
+        entries = body.entries
+        fmt = ""
+        if entries is None:
+            text = body.text or ""
+            if not text.strip():
+                raise HTTPException(status_code=400, detail="请先选择要导入的歌单文件")
+            try:
+                entries, fmt = rec.parse_playlist_text(text, body.filename)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not entries:
+            raise HTTPException(status_code=400, detail="未从歌单文件中解析出任何歌曲")
+        data["entries"] = entries
+        data["format"] = fmt
+        if not name:
+            data["name"] = _default_playlist_name(body.filename)
+    try:
+        record = rec.save_custom_playlist(data)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"保存自定义歌单失败: {exc}") from exc
+    return {"ok": True, "playlist": _playlist_summary(record)}
+
+
+@app.put("/api/custom-playlists/{pid}")
+async def api_custom_playlist_update(pid: str, body: CustomPlaylistBody):
+    rec = _require_recommend()
+    if not rec.custom_playlist_by_id(pid):
+        raise HTTPException(status_code=404, detail="自定义歌单不存在")
+    data: dict = {"id": pid}
+    if body.name and body.name.strip():
+        data["name"] = body.name.strip()
+    if body.mode and body.mode.strip():
+        data["mode"] = "llm" if body.mode.strip().lower() == "llm" else "file"
+    if body.prompt is not None:
+        data["prompt"] = body.prompt.strip()
+    if body.enabled is not None:
+        data["enabled"] = bool(body.enabled)
+    if body.entries is not None:
+        data["entries"] = body.entries
+    try:
+        record = rec.save_custom_playlist(data)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"保存自定义歌单失败: {exc}") from exc
+    return {"ok": True, "playlist": _playlist_summary(record)}
+
+
+@app.delete("/api/custom-playlists/{pid}")
+async def api_custom_playlist_delete(pid: str):
+    rec = _require_recommend()
+    if not rec.delete_custom_playlist(pid):
+        raise HTTPException(status_code=404, detail="自定义歌单不存在")
+    return {"ok": True, "deleted": pid}
+
+
+# ---------------------------------------------------------------- 关于 / 更新 --
+
+def _version_key(text: str) -> tuple[int, ...]:
+    parts = re.findall(r"\d+", str(text or ""))
+    return tuple(int(p) for p in parts) if parts else (0,)
+
+
+@app.get("/api/about")
+async def api_about():
+    return {
+        "ok": True,
+        "version": _read_version(),
+        "repo_url": REPO_URL,
+        "update_url": UPDATE_URL,
+    }
+
+
+@app.get("/api/about/update")
+async def api_about_update(request: Request):
+    """访问仓库里的 update.json 检测更新：返回最新版本号与更新内容。"""
+    current = _read_version()
+    ok, data = await _fetch_json(request, UPDATE_URL, timeout=8.0)
+    if not ok or not isinstance(data, dict) or not data.get("version"):
+        err = data.get("error") if isinstance(data, dict) else ""
+        return JSONResponse(
+            content={"ok": False, "current": current,
+                     "error": err or "无法获取更新信息，请检查网络后重试"},
+            status_code=200,
+        )
+    latest = str(data.get("version") or "").strip()
+    return {
+        "ok": True,
+        "current": current,
+        "latest": {
+            "version": latest,
+            "date": str(data.get("date") or ""),
+            "notes": str(data.get("notes") or ""),
+        },
+        "updateAvailable": _version_key(latest) > _version_key(current),
+    }
 
 
 # ------------------------------------------------------------------ 静态前端 --

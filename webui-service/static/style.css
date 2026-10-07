@@ -62,6 +62,27 @@ h2 { margin: 4px 0 14px; font-size: 20px; }
   padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow);
 }
 .card-title { font-weight: 600; margin-bottom: 10px; }
+.card-title.sub { font-size: 14px; color: var(--muted); margin: 4px 0 6px; }
+
+/* -------------------------------------------------- 自定义歌单列表 */
+.playlist-list { display: flex; flex-direction: column; gap: 8px; }
+.playlist-empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+.playlist-item {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+}
+.playlist-item .pl-main { flex: 1; min-width: 0; }
+.playlist-item .pl-name { font-weight: 600; overflow-wrap: anywhere; }
+.playlist-item .pl-meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.playlist-item .pl-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.playlist-item.disabled { opacity: .62; }
+.playlist-item .pl-badge {
+  font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 8px; color: var(--muted); flex: none;
+}
+.subblock { border-top: 1px dashed var(--line); margin-top: 14px; padding-top: 12px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
 .hint { color: var(--muted); font-size: 13px; margin: 6px 0; }
 .muted { color: var(--muted); }
@@ -221,7 +242,7 @@ input[type="radio"] { accent-color: var(--accent); margin-top: 4px; }
   }
   .bottom-nav .nav-item {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    height: 56px; text-align: center; padding: 0 2px; font-size: 13px;
+    height: 56px; text-align: center; padding: 0 1px; font-size: 12px;
     border-radius: 0; white-space: nowrap;
   }
   .bottom-nav .nav-item.active { background: transparent; color: var(--accent); font-weight: 700; }

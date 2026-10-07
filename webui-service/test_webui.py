@@ -782,6 +782,115 @@ def test_netease_my_playlists_defaults_and_saves(env_file):
         assert again.json()["values"]["FNMUSIC_NETEASE_MY_PLAYLISTS"] == "true"
 
 
+# ------------------------------------------------------- 自定义歌单 / 关于 ---
+
+M3U_SAMPLE = """#EXTM3U
+#EXTINF:-1,周杰伦 - 晴天
+/music/周杰伦 - 晴天.mp3
+#EXTINF:-1,林俊杰 - 江南
+/music/林俊杰 - 江南.flac
+"""
+
+
+def test_custom_playlist_crud(env_file, tmp_path, monkeypatch):
+    if webui.dailyrec is None:
+        pytest.skip("proxy/recommend.py 不可用")
+    monkeypatch.setenv("FNMUSIC_CUSTOM_PLAYLIST_DIR", str(tmp_path / "custom_playlists"))
+    with authed_client() as client:
+        empty = client.get("/api/custom-playlists")
+        assert empty.status_code == 200
+        assert empty.json()["playlists"] == []
+        assert empty.json()["supported_exts"] == ["m3u", "m3u8", "pls", "cue"]
+
+        created = client.post(
+            "/api/custom-playlists",
+            json={"name": "我的歌单", "mode": "file", "filename": "test.m3u", "text": M3U_SAMPLE},
+        )
+        assert created.status_code == 200, created.text
+        pl = created.json()["playlist"]
+        assert pl["name"] == "我的歌单"
+        assert pl["entryCount"] == 2
+        assert pl["format"] == "m3u"
+        assert pl["enabled"] is True
+        pid = pl["id"]
+        assert pid
+
+        listed = client.get("/api/custom-playlists").json()["playlists"]
+        assert len(listed) == 1 and listed[0]["id"] == pid
+
+        # 关闭（热重载：enabled 落盘）
+        off = client.put(f"/api/custom-playlists/{pid}", json={"enabled": False})
+        assert off.status_code == 200
+        assert off.json()["playlist"]["enabled"] is False
+
+        # 删除
+        assert client.delete(f"/api/custom-playlists/{pid}").json()["ok"] is True
+        assert client.get("/api/custom-playlists").json()["playlists"] == []
+
+
+def test_custom_playlist_validation(env_file, tmp_path, monkeypatch):
+    if webui.dailyrec is None:
+        pytest.skip("proxy/recommend.py 不可用")
+    monkeypatch.setenv("FNMUSIC_CUSTOM_PLAYLIST_DIR", str(tmp_path / "custom_playlists"))
+    with authed_client() as client:
+        # 大模型点歌缺提示 → 400
+        assert client.post("/api/custom-playlists", json={"mode": "llm"}).status_code == 400
+        # 导入模式未提供内容 → 400
+        assert client.post("/api/custom-playlists", json={"mode": "file"}).status_code == 400
+        # 更新不存在的歌单 → 404
+        assert client.put("/api/custom-playlists/nope", json={"enabled": False}).status_code == 404
+        # 删除不存在的歌单 → 404
+        assert client.delete("/api/custom-playlists/nope").status_code == 404
+
+
+def test_about_and_update_detection(env_file, monkeypatch):
+    with authed_client() as client:
+        about = client.get("/api/about")
+        assert about.status_code == 200
+        body = about.json()
+        assert body["version"] == "2.0.0"
+        assert "github.com" in body["repo_url"]
+        assert body["update_url"].endswith("update.json")
+
+    async def fake_fetch(request, url, *, timeout=4.0):
+        return True, {"version": "3.0.0", "date": "2026-10-07", "notes": "新版本"}
+
+    monkeypatch.setattr(webui, "_fetch_json", fake_fetch)
+    with authed_client() as client:
+        r = client.get("/api/about/update").json()
+        assert r["ok"] is True
+        assert r["updateAvailable"] is True
+        assert r["latest"]["version"] == "3.0.0"
+        assert r["latest"]["notes"] == "新版本"
+
+    async def same_fetch(request, url, *, timeout=4.0):
+        return True, {"version": "2.0.0", "notes": ""}
+
+    monkeypatch.setattr(webui, "_fetch_json", same_fetch)
+    with authed_client() as client:
+        assert client.get("/api/about/update").json()["updateAvailable"] is False
+
+    async def fail_fetch(request, url, *, timeout=4.0):
+        return False, {"error": "网络不可达"}
+
+    monkeypatch.setattr(webui, "_fetch_json", fail_fetch)
+    with authed_client() as client:
+        bad = client.get("/api/about/update").json()
+        assert bad["ok"] is False
+        assert "网络不可达" in bad["error"]
+
+
+def test_update_manifest_matches_version():
+    """仓库根 update.json 的版本号应与 VERSION 一致（发版自检）。"""
+    import json
+
+    repo_root = HERE.parent
+    version = (repo_root / "VERSION").read_text(encoding="utf-8").strip()
+    manifest = json.loads((repo_root / "update.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == version
+    assert manifest.get("notes")
+
+
 # ------------------------------------------------------------------ 网关管理员 ---
 
 def test_api_requires_admin(env_file):
