@@ -21,9 +21,6 @@
         <button class="nav-item active" data-page="overview">概览</button>
         <button class="nav-item" data-page="source">音乐源</button>
         <button class="nav-item" data-page="playlist">歌单</button>
-        <button class="nav-item" data-page="playback">播放</button>
-        <button class="nav-item" data-page="charts">榜单管理</button>
-        <button class="nav-item" data-page="search">搜索</button>
         <button class="nav-item" data-page="tee">边听边存</button>
         <button class="nav-item" data-page="about">关于</button>
       </nav>
@@ -139,12 +136,32 @@
           <div class="card-title">网易账号歌单</div>
           <label class="switch-row"><span>音乐页显示网易账号歌单<div class="sub">需要「网易云音乐盒子」已启用并扫码登录。开启后，网易账号里自己创建的歌单会出现在音乐页「热门推荐」下方、官方歌单上方，点开就能听；收藏的他人歌单不显示。歌单只读：在音乐页往里加歌、移歌或删除都不会写回网易。默认关闭，保存后立即生效。网易云·免扫码音源使用服务端登录态，没有用户账号，此功能不生效。</div></span><input type="checkbox" id="netease-my-playlists"></label>
         </div>
+
+        <!-- 播放（随音乐源统一在本页管理） -->
+        <div class="card">
+          <div class="card-title">播放 · 音质偏好</div>
+          <div class="radio-list" id="quality-list">
+            <label><input type="radio" name="quality" value="high"><div><b>高音质</b><span>优先最高档，失败逐级向下</span></div></label>
+            <label><input type="radio" name="quality" value="balanced"><div><b>平衡</b><span>取中间档（偶数档取中间偏高），失败先降后升</span></div></label>
+            <label><input type="radio" name="quality" value="smooth"><div><b>流畅</b><span>优先最低档，最快出声</span></div></label>
+          </div>
+        </div>
+
+        <!-- 搜索（随音乐源统一在本页管理） -->
+        <div class="card">
+          <div class="card-title">搜索</div>
+          <label class="switch-row"><span>逐曲探活(beta)<div class="sub">搜索时预先对候选歌曲进行直链解析与网络探活，确保“搜得到必能播”；但由于第三方音源解析较慢，开启后容易造成搜索超时甚至无法搜出结果，建议保持关闭。</div></span><input type="checkbox" id="search-probe"></label>
+          <label class="field"><span>搜索超时时间</span>
+            <input class="input" id="search-timeout" type="number" min="1" max="60" step="1" inputmode="numeric">
+          </label>
+          <p class="hint">单位为秒，默认 15。在线结果一返回就交给播放，本地歌曲在前；到时还没有就放弃这次在线结果，只返回本地歌曲。保存后立即生效。</p>
+        </div>
       </section>
 
-      <!-- 歌单（推荐 / 自定义歌单 / 大模型 统一管理） -->
+      <!-- 歌单（推荐 / 自定义歌单 / 大模型 / 榜单 统一管理） -->
       <section class="page" id="page-playlist">
         <h2>歌单</h2>
-        <p class="hint">推荐、自定义歌单与大模型统一在这里管理，样式一致、改动即时生效。</p>
+        <p class="hint">推荐、自定义歌单、大模型与排行榜歌单统一在这里管理，样式一致、改动即时生效。</p>
 
         <!-- 推荐 -->
         <div class="card">
@@ -205,28 +222,11 @@
             <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
           </div>
         </div>
-      </section>
 
-      <!-- 播放 -->
-      <section class="page" id="page-playback">
-        <h2>播放</h2>
+        <!-- 榜单管理（与歌单统一在本页管理） -->
         <div class="card">
-          <div class="card-title">音质偏好</div>
-          <div class="radio-list" id="quality-list">
-            <label><input type="radio" name="quality" value="high"><div><b>高音质</b><span>优先最高档，失败逐级向下</span></div></label>
-            <label><input type="radio" name="quality" value="balanced"><div><b>平衡</b><span>取中间档（偶数档取中间偏高），失败先降后升</span></div></label>
-            <label><input type="radio" name="quality" value="smooth"><div><b>流畅</b><span>优先最低档，最快出声</span></div></label>
-          </div>
-        </div>
-      </section>
-
-      <!-- 榜单管理 -->
-      <section class="page" id="page-charts">
-        <h2>榜单管理</h2>
-        <p class="hint">自定义飞牛音乐左侧栏显示的在线排行榜歌单。支持酷狗与网易云热门榜单，修改勾选后点击底部「保存并生效」即时刷新。</p>
-
-        <div class="card">
-          <div class="card-title">总开关</div>
+          <div class="card-title">排行榜歌单 · 总开关</div>
+          <p class="hint">自定义飞牛音乐左侧栏显示的在线排行榜歌单。支持酷狗与网易云热门榜单，修改勾选后点击底部「保存并生效」即时刷新。</p>
           <label class="switch-row">
             <span>启用排行榜歌单<div class="sub">关闭后飞牛音乐左侧栏不显示任何排行榜歌单（每日/热门推荐不受影响）</div></span>
             <input type="checkbox" id="charts-master-switch">
@@ -250,20 +250,6 @@
           <div class="card-title">网易云音乐榜单（<span id="wy-charts-count">0</span>）</div>
           <p class="hint">数据来源于网易云音乐官方 Toplist，含飙升榜、新歌榜、古典榜、电音榜等。</p>
           <div id="wy-charts-grid" class="chart-grid"></div>
-        </div>
-      </section>
-
-      <!-- 搜索 -->
-      <section class="page" id="page-search">
-        <h2>搜索</h2>
-        <div class="card">
-          <label class="switch-row"><span>逐曲探活(beta)<div class="sub">搜索时预先对候选歌曲进行直链解析与网络探活，确保“搜得到必能播”；但由于第三方音源解析较慢，开启后容易造成搜索超时甚至无法搜出结果，建议保持关闭。</div></span><input type="checkbox" id="search-probe"></label>
-        </div>
-        <div class="card">
-          <label class="field"><span>搜索超时时间</span>
-            <input class="input" id="search-timeout" type="number" min="1" max="60" step="1" inputmode="numeric">
-          </label>
-          <p class="hint">单位为秒，默认 15。在线结果一返回就交给播放页，本地歌曲在前；到时还没有就放弃这次在线结果，只返回本地歌曲。保存后立即生效。</p>
         </div>
       </section>
 
@@ -321,9 +307,6 @@
     <button class="nav-item active" data-page="overview">概览</button>
     <button class="nav-item" data-page="source">音源</button>
     <button class="nav-item" data-page="playlist">歌单</button>
-    <button class="nav-item" data-page="playback">播放</button>
-    <button class="nav-item" data-page="charts">榜单</button>
-    <button class="nav-item" data-page="search">搜索</button>
     <button class="nav-item" data-page="tee">缓存</button>
     <button class="nav-item" data-page="about">关于</button>
   </nav>

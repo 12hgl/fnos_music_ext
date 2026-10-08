@@ -46,7 +46,7 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger("webui_service")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-SERVICE_VERSION = "2.8.0"
+SERVICE_VERSION = "3.0.0"
 
 CONF = {
     "repo_dir": os.environ.get("WEBUI_REPO_DIR", "/repo"),
@@ -69,6 +69,24 @@ UPDATE_URL = os.environ.get(
     "WEBUI_UPDATE_URL",
     "https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/update.json",
 )
+# GitHub 直连在国内网络常不可达，检测更新时按序回退到公共加速代理。
+# 代理为前缀式：<代理域名>/<原始 GitHub URL>（如 https://gh-proxy.com/https://github.com/...）。
+# 可用 WEBUI_UPDATE_PROXIES 覆盖（逗号分隔；留空表示只直连、不用代理）。
+UPDATE_PROXIES = [
+    p.strip()
+    for p in os.environ.get(
+        "WEBUI_UPDATE_PROXIES", "https://gh-proxy.com/,https://gh-proxy.org/"
+    ).split(",")
+    if p.strip()
+]
+
+
+def _update_url_candidates() -> list[str]:
+    """检测更新的候选地址：直连优先，失败后逐个走加速代理。"""
+    urls = [UPDATE_URL]
+    for prefix in UPDATE_PROXIES:
+        urls.append(f"{prefix.rstrip('/')}/{UPDATE_URL}")
+    return urls
 
 # 支持导入的自定义歌单文件格式（与 proxy/recommend.py SUPPORTED_PLAYLIST_EXTS 一致）
 PLAYLIST_EXTS = ("m3u", "m3u8", "pls", "cue")
@@ -319,12 +337,22 @@ def _normalize_value(key: str, raw) -> str:
     return str(raw).strip()
 
 
-def validate_updates(values: dict) -> dict[str, str]:
+def validate_updates(values: dict) -> tuple[dict[str, str], list[str]]:
+    """校验并归一化配置更新。
+
+    返回 ``(updates, ignored)``：``ignored`` 为无法识别的键。旧版前端（浏览器/桌面
+    WebView 缓存）可能仍提交已下线的配置键（如 FNMUSIC_RECOMMEND_HOT），若整单
+    拒绝会导致用户"什么都保存不了"；这里改为忽略未知键并回传，保证向前兼容。
+    """
     updates: dict[str, str] = {}
+    ignored: list[str] = []
     for key, raw in (values or {}).items():
         if key not in SCHEMA:
-            raise ValueError(f"不支持的配置键: {key}")
+            ignored.append(str(key))
+            continue
         updates[key] = _normalize_value(key, raw)
+    if ignored:
+        logger.warning("忽略无法识别的配置键（可能来自旧版前端）: %s", ", ".join(sorted(ignored)))
     # 四选一互斥：以"应用后的最终状态"判断
     final = dict(read_env())
     final.update(updates)
@@ -334,7 +362,7 @@ def validate_updates(values: dict) -> dict[str, str]:
         raise ValueError(f"音源四选一：{'、'.join(enabled)} 同时启用，请只保留一个")
     if updates.keys() & _PROVIDER_KEYS and not enabled:
         raise ValueError("至少需要启用一个音源")
-    return updates
+    return updates, ignored
 
 
 # ------------------------------------------------------------------ HTTP 客户端 --
@@ -520,7 +548,7 @@ async def api_preview(body: PreviewBody, request: Request):
 async def api_config_put(body: ConfigBody, request: Request):
     before = read_env()
     try:
-        updates = validate_updates(body.values)
+        updates, ignored = validate_updates(body.values)
     except ValueError as exc:
         return JSONResponse(content={"ok": False, "error": str(exc)}, status_code=400)
 
@@ -549,7 +577,8 @@ async def api_config_put(body: ConfigBody, request: Request):
     old_provider = current_provider(before)
     changed = write_env(updates)
     if not changed:
-        return {"ok": True, "changed": [], "actions": [], "note": "配置无变化"}
+        return {"ok": True, "changed": [], "actions": [], "ignored": ignored,
+                "note": "配置无变化" if not ignored else "已忽略无法识别的配置键"}
 
     after = read_env()
     new_provider = current_provider(after)
@@ -581,7 +610,8 @@ async def api_config_put(body: ConfigBody, request: Request):
     actions.extend(preview_reconcile_after_save())
 
     restart_keys = [k for k in changed if SCHEMA.get(k, {}).get("reload") == "restart"]
-    return {"ok": True, "changed": changed, "actions": actions, "restart_keys": restart_keys}
+    return {"ok": True, "changed": changed, "actions": actions, "ignored": ignored,
+            "restart_keys": restart_keys}
 
 
 @app.post("/api/lx/verify")
@@ -847,19 +877,27 @@ async def api_about():
         "version": _read_version(),
         "repo_url": REPO_URL,
         "update_url": UPDATE_URL,
+        "update_proxies": UPDATE_PROXIES,
     }
 
 
 @app.get("/api/about/update")
 async def api_about_update(request: Request):
-    """访问仓库里的 update.json 检测更新：返回最新版本号与更新内容。"""
+    """访问仓库里的 update.json 检测更新：直连失败时自动回退 GitHub 加速代理。"""
     current = _read_version()
-    ok, data = await _fetch_json(request, UPDATE_URL, timeout=8.0)
-    if not ok or not isinstance(data, dict) or not data.get("version"):
-        err = data.get("error") if isinstance(data, dict) else ""
+    data: dict | None = None
+    last_err = ""
+    for url in _update_url_candidates():
+        ok, payload = await _fetch_json(request, url, timeout=8.0)
+        if ok and isinstance(payload, dict) and payload.get("version"):
+            data = payload
+            break
+        if isinstance(payload, dict) and payload.get("error"):
+            last_err = str(payload["error"])
+    if data is None:
         return JSONResponse(
             content={"ok": False, "current": current,
-                     "error": err or "无法获取更新信息，请检查网络后重试"},
+                     "error": last_err or "无法获取更新信息，请检查网络或代理后重试"},
             status_code=200,
         )
     latest = str(data.get("version") or "").strip()
@@ -906,6 +944,38 @@ class DesktopPrefixMiddleware:
         await self.app(scope, receive, send)
 
 
+class NoCacheStaticMiddleware:
+    """首页与静态资源禁用强缓存。
+
+    升级后浏览器/桌面 WebView 常仍命中旧版 index.html/app.js，导致前端落后数个
+    版本（提交已下线的配置键、看不到新页面）。这里强制客户端每次回源校验（
+    no-cache：命中未变仍返回 304），从根本上避免前后端版本错配。
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path") or ""
+        if not (path == "/" or path.startswith("/static/")):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = [(k, v) for k, v in (message.get("headers") or [])
+                           if k.lower() != b"cache-control"]
+                headers.append((b"cache-control", b"no-cache"))
+                message = dict(message)
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 class AuthMiddleware:
     """管理接口要求飞牛网关注入的管理员身份。桌面前缀由外层中间件先剥掉。"""
 
@@ -933,4 +1003,6 @@ class AuthMiddleware:
 
 
 app.add_middleware(AuthMiddleware)
+# NoCache 在 DesktopPrefix 之内、Auth 之外：先剥 /app/fnmusic-ext 前缀再判路径。
+app.add_middleware(NoCacheStaticMiddleware)
 app.add_middleware(DesktopPrefixMiddleware)

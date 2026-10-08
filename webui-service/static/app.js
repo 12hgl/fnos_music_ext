@@ -884,7 +884,7 @@ async function checkUpdate() {
   const btn = $("#about-check");
   box.hidden = false;
   box.className = "report";
-  box.textContent = "正在访问仓库 update.json 检测更新…";
+  box.textContent = "正在检测更新（直连不可达时自动走 GitHub 加速代理）…";
   $("#about-check-note").textContent = "";
   btn.disabled = true;
   try {

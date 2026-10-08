@@ -119,11 +119,30 @@ def test_category_playlist_config_normalizes(env_file):
 
 # ------------------------------------------------------------------ PUT 校验 ---
 
-def test_put_rejects_unknown_key(env_file):
+def test_put_ignores_unknown_key(env_file):
+    """未知键被忽略而非整单失败（兼容旧版前端提交的已下线键）。"""
     with authed_client() as client:
         r = client.put("/api/config", json={"values": {"NOT_A_KEY": "1"}})
-        assert r.status_code == 400
-        assert "不支持的配置键" in r.json()["error"]
+        assert r.status_code == 200
+        assert r.json()["ignored"] == ["NOT_A_KEY"]
+        assert "NOT_A_KEY" not in env_file.read_text(encoding="utf-8")
+
+
+def test_put_tolerates_deprecated_key(env_file):
+    """回归：旧版前端仍提交 FNMUSIC_RECOMMEND_HOT 时，其余有效键照常保存。"""
+    with authed_client() as client:
+        r = client.put("/api/config", json={"values": {
+            "FNMUSIC_RECOMMEND_HOT": True,
+            "FNMUSIC_QUALITY_MODE": "smooth",
+        }})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "FNMUSIC_RECOMMEND_HOT" in body["ignored"]
+        assert "FNMUSIC_QUALITY_MODE" in body["changed"]
+    text = env_file.read_text(encoding="utf-8")
+    assert "FNMUSIC_QUALITY_MODE='smooth'" in text
+    # 已下线键既不被新增写入，也不参与本次更新（既有值原样保留）
+    assert "FNMUSIC_RECOMMEND_HOT=" in text
 
 
 def test_put_rejects_bad_enum(env_file):
@@ -764,6 +783,15 @@ def test_index_served():
         assert client.get("/app/fnmusic-ext/static/icon.png").status_code == 200
 
 
+def test_static_and_index_no_cache():
+    """首页与静态资源带 no-cache，避免升级后浏览器仍用旧前端导致版本错配。"""
+    with TestClient(webui.app) as client:
+        assert client.get("/").headers.get("cache-control") == "no-cache"
+        assert client.get("/static/app.js").headers.get("cache-control") == "no-cache"
+        # 带桌面前缀同样生效（中间件先剥前缀）
+        assert client.get("/app/fnmusic-ext/static/style.css").headers.get("cache-control") == "no-cache"
+
+
 def test_netease_my_playlists_defaults_and_saves(env_file):
     with authed_client() as client:
         view = client.get("/api/config")
@@ -851,6 +879,7 @@ def test_about_and_update_detection(env_file, monkeypatch):
         assert body["version"] == "2.0.0"
         assert "github.com" in body["repo_url"]
         assert body["update_url"].endswith("update.json")
+        assert any("gh-proxy.com" in p for p in body["update_proxies"])
 
     async def fake_fetch(request, url, *, timeout=4.0):
         return True, {"version": "3.0.0", "date": "2026-10-07", "notes": "新版本"}
@@ -878,6 +907,33 @@ def test_about_and_update_detection(env_file, monkeypatch):
         bad = client.get("/api/about/update").json()
         assert bad["ok"] is False
         assert "网络不可达" in bad["error"]
+
+
+def test_about_update_falls_back_to_proxy(env_file, monkeypatch):
+    """直连 GitHub 失败时，自动回退到 gh-proxy 加速代理取 update.json。"""
+    seen: list[str] = []
+
+    async def fake_fetch(request, url, *, timeout=4.0):
+        seen.append(url)
+        if url.startswith("https://raw.githubusercontent.com"):
+            return False, {"error": "直连超时"}
+        return True, {"version": "3.0.0", "notes": "n"}
+
+    monkeypatch.setattr(webui, "_fetch_json", fake_fetch)
+    with authed_client() as client:
+        r = client.get("/api/about/update").json()
+    assert r["ok"] is True and r["updateAvailable"] is True
+    assert seen[0].startswith("https://raw.githubusercontent.com")
+    assert seen[1].startswith("https://gh-proxy.com/https://raw.githubusercontent.com")
+
+    # 代理也失败 → 返回失败并带上最后一次错误
+    async def all_fail(request, url, *, timeout=4.0):
+        return False, {"error": "全部不可达"}
+
+    monkeypatch.setattr(webui, "_fetch_json", all_fail)
+    with authed_client() as client:
+        bad = client.get("/api/about/update").json()
+    assert bad["ok"] is False and "全部不可达" in bad["error"]
 
 
 def test_update_manifest_matches_version():
