@@ -112,6 +112,8 @@ sed -e "s/@VERSION@/${MANIFEST_VER}/" -e "s/@PLATFORM@/${PLATFORM}/" \
     "${FPK_DIR}/manifest.in" > "${STAGE}/manifest"
 cp "${FPK_DIR}/ICON.PNG" "${FPK_DIR}/ICON_256.PNG" "${STAGE}/"
 cp -a "${FPK_DIR}/app/ui/." "${STAGE}/app/ui/"
+# 桌面入口 URL 带版本号，发版后强制 WebView 重新加载首页（防缓存旧前端）
+sed "s/@VERSION@/${VERSION}/g" "${FPK_DIR}/app/ui/config" > "${STAGE}/app/ui/config"
 cp -a "${FPK_DIR}/cmd" "${STAGE}/cmd"
 cp -a "${FPK_DIR}/config" "${STAGE}/config"
 cp -a "${FPK_DIR}/wizard" "${STAGE}/wizard"

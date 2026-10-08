@@ -7,7 +7,7 @@
             "type": "iframe",
             "protocol": "http",
             "port": "",
-            "url": "/app/fnmusic-ext/",
+            "url": "/app/fnmusic-ext/?v=@VERSION@",
             "allUsers": false,
             "gatewaySocket": "fnmusic-ext.sock",
             "gatewayPrefix": "/app/fnmusic-ext"

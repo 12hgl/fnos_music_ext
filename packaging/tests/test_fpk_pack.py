@@ -120,7 +120,9 @@ class TestUiConfig:
         # 空端口 + 网关路径：桌面是 HTTPS，不能把管理页嵌成 http://主机:8774
         assert entry["port"] == ""
         assert entry["protocol"] == "http"
-        assert entry["url"] == "/app/fnmusic-ext/"
+        # 入口 URL 带版本号（发版后强制 WebView 重新加载，防缓存旧前端）
+        assert entry["url"].startswith("/app/fnmusic-ext/?v=")
+        assert entry["url"].split("?v=", 1)[1]
         assert entry["gatewayPrefix"] == "/app/fnmusic-ext"
         assert entry["gatewaySocket"] == "fnmusic-ext.sock"
         assert entry["allUsers"] is False

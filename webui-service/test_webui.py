@@ -792,6 +792,14 @@ def test_static_and_index_no_cache():
         assert client.get("/app/fnmusic-ext/static/style.css").headers.get("cache-control") == "no-cache"
 
 
+def test_index_versions_static_assets(env_file):
+    """首页给 css/js 打版本号，发版后强制拉取新前端（防 WebView/网关缓存）。"""
+    with TestClient(webui.app) as client:
+        html = client.get("/").text
+    assert "/app/fnmusic-ext/static/style.css?v=2.0.0" in html
+    assert "/app/fnmusic-ext/static/app.js?v=2.0.0" in html
+
+
 def test_netease_my_playlists_defaults_and_saves(env_file):
     with authed_client() as client:
         view = client.get("/api/config")

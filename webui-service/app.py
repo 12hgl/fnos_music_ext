@@ -21,7 +21,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -46,7 +46,7 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger("webui_service")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-SERVICE_VERSION = "3.0.0"
+SERVICE_VERSION = "3.0.1"
 
 CONF = {
     "repo_dir": os.environ.get("WEBUI_REPO_DIR", "/repo"),
@@ -917,7 +917,20 @@ async def api_about_update(request: Request):
 
 @app.get("/")
 async def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    """首页：给静态资源 URL 打上版本号。
+
+    桌面 WebView / 网关可能不理会 Cache-Control，直接缓存 index.html，导致升级后
+    仍显示旧前端。这里把 style.css / app.js 的 URL 加上 ?v=<版本>，再配合桌面入口
+    URL 的版本参数，保证每次发版都会强制拉取新前端。
+    """
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    ver = _read_version()
+    html = re.sub(
+        r'(/app/fnmusic-ext/static/(?:style\.css|app\.js))"',
+        rf'\1?v={ver}"',
+        html,
+    )
+    return Response(content=html, media_type="text/html; charset=utf-8")
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
