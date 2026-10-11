@@ -6,13 +6,14 @@
 !lxmusic-service/
 !webui-service/
 !container/
-# webui 复用 .env 安全合并模块与榜单定义：放行这两个文件
+# webui 复用 .env 安全合并模块、榜单定义与自定义歌单模块：放行这几个文件
 # （目录先放行再收窄，父目录被排除时无法重新包含）
 !proxy/
 proxy/*
 !proxy/__init__.py
 !proxy/env_merge.py
 !proxy/charts.py
+!proxy/recommend.py
 **/__pycache__/
 **/*.pyc
 **/.pytest_cache/

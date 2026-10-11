@@ -1068,6 +1068,147 @@ def build_local_track(row: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# 歌单本地化：生成歌单/逐首检索时优先复用本地已下载曲目
+#
+# resolve_recommendations 原先对每个候选歌名一律在线检索，本地已下载的歌也要
+# 重新出网匹配（歌单越多越慢），且本地已存在时仍生成在线条目而非本地曲目。
+# 这里按 (歌名, 歌手) 建本地曲库索引：命中本地文件即直接用官方本地曲目
+# （真实 guid、免在线检索、必然可播），未命中才回落在线检索。
+# ---------------------------------------------------------------------------
+_LOCAL_INDEX_CACHE: dict[str, tuple[float, dict[str, list[dict]]]] = {}
+
+# 歌名/歌手匹配归一化：去空白、常见中英标点与分隔符，统一小写
+_MATCH_STRIP_RE = re.compile(
+    r"[\s\u3000()（）\[\]【】{}《》<>「」,，。、;；:：!！?？~～\-—_·'\"“”‘’/\\|&+]+"
+)
+
+
+def _normalize_match_text(text: str) -> str:
+    return _MATCH_STRIP_RE.sub("", str(text or "").lower())
+
+
+def read_local_library_rows(db_path: str) -> list[dict]:
+    """只读飞牛曲库，返回本地文件真实存在的曲目行（build_local_track 输入形状）。"""
+    if not db_path or not os.path.exists(db_path):
+        return []
+    sql = """
+        SELECT t.guid, t.title, t.year, t.disc_no, t.track_no, t.isrc,
+               t.duration_ms, t.is_cue, t.cover_guid,
+               af.path, af.suffix, af.size, af.bitrate, af.sample_rate,
+               af.bit_depth, af.channel, af.container, af.codec,
+               (SELECT GROUP_CONCAT(a.name, '/')
+                  FROM track_artist ta JOIN artist a ON a.id = ta.artist_id
+                 WHERE ta.track_id = t.id) AS artists,
+               (SELECT GROUP_CONCAT(a.guid, '/')
+                  FROM track_artist ta JOIN artist a ON a.id = ta.artist_id
+                 WHERE ta.track_id = t.id) AS artist_guids,
+               al.guid AS album_guid, al.name AS album, al.release_date
+          FROM track t
+          JOIN audio_file af ON af.id = t.audio_file_id
+          LEFT JOIN album al ON al.id = t.album_id
+         WHERE t.is_audio_file_deleted = 0 AND t.is_admin_deleted = 0
+           AND af.is_physical_file_deleted = 0
+    """
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = con.execute(sql).fetchall()
+        finally:
+            con.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("failed to read local library: %s", e)
+        return []
+    out: list[dict] = []
+    for (guid, title, year, disc_no, track_no, isrc, duration_ms, is_cue, cover_guid,
+         af_path, suffix, size, bitrate, sample_rate, bit_depth, channel, container, codec,
+         artists, artist_guids, album_guid, album, release_date) in rows:
+        guid_s = str(guid or "")
+        if not guid_s:
+            continue
+        out.append({
+            "guid": guid_s,
+            "title": str(title or ""),
+            "artist": str(artists or ""),
+            "artist_guids": str(artist_guids or ""),
+            "album": str(album or ""),
+            "album_guid": str(album_guid or ""),
+            "release_date": str(release_date or ""),
+            "year": year,
+            "disc_no": disc_no,
+            "track_no": track_no,
+            "isrc": str(isrc or ""),
+            "duration_ms": int(duration_ms or 0),
+            "is_cue": bool(is_cue),
+            "cover_guid": str(cover_guid or ""),
+            "path": str(af_path or ""),
+            "suffix": str(suffix or ""),
+            "size": int(size or 0),
+            "bitrate": int(bitrate or 0),
+            "sample_rate": int(sample_rate or 0),
+            "bit_depth": int(bit_depth or 0) if bit_depth else 0,
+            "channel": int(channel or 0),
+            "container": str(container or ""),
+            "codec": str(codec or ""),
+            "source": "local",
+        })
+    return out
+
+
+def _build_local_match_index(rows: list[dict]) -> dict[str, list[dict]]:
+    index: dict[str, list[dict]] = {}
+    for row in rows:
+        key = _normalize_match_text(row.get("title"))
+        if key:
+            index.setdefault(key, []).append(row)
+    return index
+
+
+def local_match_index(db_path: str) -> dict[str, list[dict]]:
+    """本地曲库匹配索引（按库文件 mtime 缓存，避免歌单逐首建索引）。"""
+    if not db_path or not os.path.exists(db_path):
+        return {}
+    try:
+        mtime = os.path.getmtime(db_path)
+    except OSError:
+        mtime = 0.0
+    cached = _LOCAL_INDEX_CACHE.get(db_path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    index = _build_local_match_index(read_local_library_rows(db_path))
+    _LOCAL_INDEX_CACHE[db_path] = (mtime, index)
+    return index
+
+
+def _pick_local_match(
+    index: dict[str, list[dict]], title: str, artist: str
+) -> dict | None:
+    """按歌名精确归一化命中，再用歌手校验，返回本地曲目行；不匹配返回 None。"""
+    key = _normalize_match_text(title)
+    if not key:
+        return None
+    cands = index.get(key)
+    if not cands:
+        return None
+    if not artist:
+        return cands[0]
+    want_parts = [
+        _normalize_match_text(p)
+        for p in re.split(r"[/、,&;；]", str(artist))
+    ]
+    want_parts = [p for p in want_parts if p]
+    want_all = _normalize_match_text(artist)
+    for row in cands:
+        have = _normalize_match_text(row.get("artist"))
+        if not have:
+            continue
+        if want_all and (want_all in have or have in want_all):
+            return row
+        if any(p in have for p in want_parts):
+            return row
+    return None
+
+
 def _item_title_artist(item: dict) -> tuple[str, str]:
     track = item.get("track") if isinstance(item.get("track"), dict) else item
     title = str(track.get("title") or track.get("name") or "").strip()
@@ -1697,16 +1838,22 @@ async def resolve_recommendations(
     lx_sources: "list[str] | None" = None,
     on_track=None,
     should_stop=None,
+    db_path: str | None = None,
+    user_guid: str | None = None,
 ) -> list[dict]:
     """把候选歌名检索成可播放的在线 Track，跳过已收藏，凑满 limit 首。
 
     issue #23：每首入列前做可播校验（verify_track_playable），失败换下一候选。
     issue #29：on_track(track) 每入列一首即回调（供上层渐进 checkpoint 落盘，
     超时中断不再整块丢弃已完成部分）；should_stop() 为真时停止消费后续候选。
+
+    歌单本地化：传入 db_path 时先按 (歌名, 歌手) 命中本地曲库，命中即用本地
+    已下载曲目（免在线检索、必然可播），未命中才回落在线检索。
     """
     skip_ids = set(exclude_guids or ())
     skip_ta = set(exclude_ta or ())
     verify = verify_playable_enabled()
+    local_index = local_match_index(db_path) if db_path else {}
     out: list[dict] = []
     seen_ids: set[str] = set()
     seen_ta: set[tuple[str, str]] = set()
@@ -1721,6 +1868,17 @@ async def resolve_recommendations(
     async def one(rec: dict) -> list[dict]:
         title = rec.get("title") or ""
         artist = rec.get("artist") or ""
+        # 歌单本地化：本地已下载的同名同歌手曲目直接用本地文件，不出网检索
+        if local_index:
+            row = _pick_local_match(local_index, title, artist)
+            if row is not None:
+                lguid = str(row.get("guid") or "")
+                lt, la = str(row.get("title") or ""), str(row.get("artist") or "")
+                if not _excluded(lguid, lt, la):
+                    track = build_local_track(row)
+                    track["recommendDimension"] = rec.get("dimension") or ""
+                    track["recommendReason"] = rec.get("reason") or ""
+                    return [track]
         keyword = " ".join(x for x in (artist, title) if x).strip() or title
         interval = search_interval_s()
         async with sem:
@@ -2208,6 +2366,7 @@ async def build_custom_bundle(
             candidates, musicdl_client, musicbox_client, netease_enabled, build_track,
             limit=min(target, len(candidates)),
             lx_client=lx_client, lx_enabled=lx_enabled, lx_sources=lx_sources,
+            db_path=music_db_path(), user_guid=user_guid,
         )
     tracks = stamp_playlist_tracks(tracks[:target])
     picked = pick_playlist_cover_track(tracks)
@@ -2407,6 +2566,7 @@ async def get_or_build_daily(
             target, exclude_guids, exclude_ta,
             lx_client=lx_client, lx_enabled=lx_enabled, lx_sources=lx_sources,
             on_track=on_track, should_stop=should_stop,
+            db_path=music_db_path(), user_guid=user_guid,
         )
 
     async def from_local_random(on_track=None, should_stop=None) -> list[dict]:

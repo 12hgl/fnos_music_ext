@@ -30,11 +30,18 @@ CORNER_RATIO = 18  # percent; matches existing fnOS silhouette
 
 
 def _clear_white_corners(img: Image.Image, thresh: int = 40) -> Image.Image:
-    """Flood near-white canvas corners to transparent; interior whites stay."""
+    """Flood near-white canvas corners to transparent; interior whites stay.
+
+    仅当角落像素本身接近纯白时才做泛洪：满幅纯色/渐变背景（角落非白）必须
+    原样保留，否则泛洪会沿渐变把整块背景误清成透明。
+    """
     rgba = img.convert("RGBA")
     w, h = rgba.size
+    px = rgba.load()
     for xy in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
-        ImageDraw.floodfill(rgba, xy, (0, 0, 0, 0), thresh=thresh)
+        r, g, b, a = px[xy]
+        if a > 0 and r > 235 and g > 235 and b > 235:
+            ImageDraw.floodfill(rgba, xy, (0, 0, 0, 0), thresh=thresh)
     return rgba
 
 

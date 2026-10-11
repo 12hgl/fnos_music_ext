@@ -316,9 +316,23 @@ def test_dockerfile_copies_proxy_modules_imported_by_services():
     text = (CONTAINER_DIR / "Dockerfile").read_text(encoding="utf-8")
     copied = " ".join(ln for ln in text.splitlines() if ln.startswith("COPY"))
     ignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+
+    def imported_proxy_modules(src: str) -> set[str]:
+        mods: set[str] = set()
+        # from proxy.recommend import ...
+        mods.update(re.findall(r"^\s*from proxy\.([A-Za-z_]\w*)", src, re.M))
+        # from proxy import recommend  /  from proxy import charts, recommend
+        # 也覆盖 `from proxy import recommend as dailyrec` 的别名形式（取别名前的模块名）
+        for m in re.finditer(r"^\s*from proxy import ([A-Za-z_][\w, ]*)", src, re.M):
+            for n in m.group(1).split(","):
+                name = n.strip().split(" as ")[0].strip()
+                if name:
+                    mods.add(name)
+        return mods
+
     for service_dir in ("musicdl-service", "musicbox-service", "neteasefree-service", "lxmusic-service", "webui-service"):
         for py in sorted((REPO_ROOT / service_dir).glob("*.py")):
-            for m in re.finditer(r"^\s*from proxy\.([A-Za-z_][\w]*)", py.read_text(encoding="utf-8"), re.M):
-                mod = f"proxy/{m.group(1)}.py"
+            for name in sorted(imported_proxy_modules(py.read_text(encoding="utf-8"))):
+                mod = f"proxy/{name}.py"
                 assert mod in copied, f"{service_dir}/{py.name} import {mod}，Dockerfile 需 COPY 进镜像"
                 assert f"!{mod}" in ignore, f"{mod} 被 .dockerignore 排除，构建上下文拿不到"
