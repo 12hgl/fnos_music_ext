@@ -273,7 +273,19 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 
 def custom_playlists_dir() -> str:
-    return os.environ.get("FNMUSIC_CUSTOM_PLAYLIST_DIR") or os.path.join(home_dir(), "custom_playlists")
+    """自定义歌单定义目录。
+
+    优先级：FNMUSIC_CUSTOM_PLAYLIST_DIR > XDG_DATA_HOME（容器内 /data，已 chown
+    appuser）> home_dir()。容器里 home_dir() 解析为 /srv（root 属主，appuser 只读），
+    直接在其下建目录会 Permission denied；XDG_DATA_HOME 指向持久卷 /data，可写。
+    """
+    env = (os.environ.get("FNMUSIC_CUSTOM_PLAYLIST_DIR") or "").strip()
+    if env:
+        return env
+    xdg = (os.environ.get("XDG_DATA_HOME") or "").strip()
+    if xdg:
+        return os.path.join(xdg, "custom_playlists")
+    return os.path.join(home_dir(), "custom_playlists")
 
 
 def safe_playlist_id(pid: str) -> str:

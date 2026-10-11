@@ -46,7 +46,7 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger("webui_service")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-SERVICE_VERSION = "3.0.2"
+SERVICE_VERSION = "3.0.3"
 
 CONF = {
     "repo_dir": os.environ.get("WEBUI_REPO_DIR", "/repo"),
@@ -93,9 +93,23 @@ PLAYLIST_EXTS = ("m3u", "m3u8", "pls", "cue")
 
 
 def custom_playlists_dir() -> Path:
-    """自定义歌单定义目录（与 proxy/recommend.py 同源：FNMUSIC_CUSTOM_PLAYLIST_DIR 优先）。"""
+    """自定义歌单定义目录（与 proxy/recommend.py 同源，直接委托其解析）。
+
+    容器内 home_dir() 为 /srv（root 属主）不可写，推荐模块改用 XDG_DATA_HOME
+    （/data）存放；此处委托同一函数，避免 WebUI 与 proxy 落到不同目录。
+    """
+    if dailyrec is not None:
+        try:
+            return Path(dailyrec.custom_playlists_dir())
+        except Exception:  # noqa: BLE001
+            pass
     env = (os.environ.get("FNMUSIC_CUSTOM_PLAYLIST_DIR") or "").strip()
-    return Path(env) if env else (Path(CONF["repo_dir"]) / "custom_playlists")
+    if env:
+        return Path(env)
+    xdg = (os.environ.get("XDG_DATA_HOME") or "").strip()
+    if xdg:
+        return Path(xdg) / "custom_playlists"
+    return Path(CONF["repo_dir"]) / "custom_playlists"
 
 # 音源进程 ↔ 启用开关（四选一互斥）
 PROVIDERS = {

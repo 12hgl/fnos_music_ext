@@ -88,3 +88,23 @@ def test_resolve_recommendations_accepts_local_params():
     sig = inspect.signature(recommend.resolve_recommendations)
     assert "db_path" in sig.parameters
     assert "user_guid" in sig.parameters
+
+
+def test_custom_playlists_dir_prefers_explicit_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("FNMUSIC_CUSTOM_PLAYLIST_DIR", str(tmp_path / "explicit"))
+    assert recommend.custom_playlists_dir() == str(tmp_path / "explicit")
+
+
+def test_custom_playlists_dir_falls_back_to_xdg(monkeypatch, tmp_path):
+    """容器内 home_dir() 为只读 /srv；有 XDG_DATA_HOME 时必须落在其下（可写）。"""
+    monkeypatch.delenv("FNMUSIC_CUSTOM_PLAYLIST_DIR", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    assert recommend.custom_playlists_dir() == str(tmp_path / "data" / "custom_playlists")
+
+
+def test_custom_playlists_dir_without_xdg_uses_home(monkeypatch, tmp_path):
+    monkeypatch.delenv("FNMUSIC_CUSTOM_PLAYLIST_DIR", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("FNMUSIC_HOME", str(tmp_path / "home"))
+    assert recommend.custom_playlists_dir() == str(tmp_path / "home" / "custom_playlists")

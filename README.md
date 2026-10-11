@@ -3,7 +3,7 @@
 [![GitHub Repo](https://img.shields.io/badge/GitHub-12hgl%2Ffnos_music_ext-blue)](https://github.com/12hgl/fnos_music_ext)
 [![Gitee Repo](https://img.shields.io/badge/Gitee-a12hgl%2Ffnos_music_ext-red)](https://gitee.com/a12hgl/fnos_music_ext)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.0.2-green.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-3.0.3-green.svg)](VERSION)
 
 > **仓库地址**：GitHub [12hgl/fnos_music_ext](https://github.com/12hgl/fnos_music_ext) ｜ Gitee 镜像 [a12hgl/fnos_music_ext](https://gitee.com/a12hgl/fnos_music_ext)（与 GitHub 同步发行，国内访问更快）。
 

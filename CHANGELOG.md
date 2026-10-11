@@ -6,6 +6,16 @@
 > **关于版本号**：自 v3.0.0 起，fnmusic-ext 采用独立版本号，避免与仓库内其他项目及上游（如 lxmusic-service 的 2.x）版本号混淆。
 > **发版规则**：默认只递增小版本（补丁位，`x.y.Z`）；如需递增中版本（`x.Y.z`），会在发版说明中明确指定。
 
+## [3.0.3] - 2026-10-11
+
+### 修复
+
+- **自定义歌单保存失败（Permission denied: `/srv/custom_playlists`）**：容器内 `home_dir()` 解析为 `/srv`（root 属主，`appuser` 只读），自定义歌单定义目录落到此路径导致创建/保存报错。现改为按序解析 `FNMUSIC_CUSTOM_PLAYLIST_DIR` → `XDG_DATA_HOME`（容器内 `/data`，持久卷、已 chown `appuser`）→ `home_dir()`，WebUI 与 proxy 复用同一逻辑，落到可写的 `/data/custom_playlists`。
+
+### 变更
+
+- **应用图标底色改白色**：图标由「青色渐变底 + 白色音符」改为「白色底 + 青→靛渐变音符」，并全量重生成各尺寸图标（安装包 `ICON.PNG` / `ICON_256.PNG`、桌面入口 `icon_64.png` / `icon_256.png`、WebUI `icon.png`）。
+
 ## [3.0.2] - 2026-10-11
 
 ### 新增

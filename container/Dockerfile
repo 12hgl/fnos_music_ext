@@ -85,7 +85,7 @@ RUN set -eu; \
     && rm -f /srv/req.*
 
 RUN useradd -m -u 1000 appuser \
-    && mkdir -p /data/cache /data/config /data/lxmusic \
+    && mkdir -p /data/cache /data/config /data/lxmusic /data/custom_playlists \
     && chown -R appuser:appuser /data
 
 # --chown+chmod：镜像权限不依赖构建上下文的 umask/属主
