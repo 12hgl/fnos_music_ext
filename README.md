@@ -1,8 +1,11 @@
 # fnmusic-ext 飞牛音乐扩展（二开）
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-12hgl%2Ffnos_music_ext-blue)](https://github.com/12hgl/fnos_music_ext)
+[![Gitee Repo](https://img.shields.io/badge/Gitee-a12hgl%2Ffnos_music_ext-red)](https://gitee.com/a12hgl/fnos_music_ext)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.7.6-green.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-3.0.2-green.svg)](VERSION)
+
+> **仓库地址**：GitHub [12hgl/fnos_music_ext](https://github.com/12hgl/fnos_music_ext) ｜ Gitee 镜像 [a12hgl/fnos_music_ext](https://gitee.com/a12hgl/fnos_music_ext)（与 GitHub 同步发行，国内访问更快）。
 
 > **本项目是 [javycoder/fnos_music_ext](https://github.com/javycoder/fnos_music_ext) 的二开版本。**
 > 衷心感谢原作者 [@javycoder](https://github.com/javycoder) 的杰出工作与开源贡献，原始架构与绝大部分功能均出自原作者
@@ -89,7 +92,11 @@
 
 ### 安装（推荐：应用中心 fpk 包）
 
-从 [GitHub Releases](https://github.com/12hgl/fnos_music_ext/releases) 下载对应架构的安装包，在 fnOS「应用中心 → 手动安装」选择该文件，按向导选择**初始音源**即可自动完成安装并启用。
+从 [GitHub Releases](https://github.com/12hgl/fnos_music_ext/releases) 或 [Gitee Releases](https://gitee.com/a12hgl/fnos_music_ext/releases) 下载对应架构的安装包，在 fnOS「应用中心 → 手动安装」选择该文件，按向导选择**初始音源**即可自动完成安装并启用。
+
+> **恒定下载链接（始终指向最新版，文件名不含版本号）**：每次发版由 GitHub Action 自动覆盖更新 `latest/` 目录，收藏此链接即可长期使用。
+> - x86：<https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext.fpk> ｜ Gitee：<https://gitee.com/a12hgl/fnos_music_ext/raw/main/latest/fnmusic-ext.fpk>
+> - ARM64：<https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext-arm64.fpk> ｜ Gitee：<https://gitee.com/a12hgl/fnos_music_ext/raw/main/latest/fnmusic-ext-arm64.fpk>
 
 - **x86 设备**：下载 `fnmusic-ext-<版本>.fpk`（manifest `platform=x86`）；
 - **ARM64 设备**（fnOS ARM 版）：下载 `fnmusic-ext-<版本>-arm64.fpk`（manifest `platform=arm`）。音源容器镜像由设备本地 `docker compose build` 原生构建，无需额外操作；
@@ -108,6 +115,7 @@
 
 ```bash
 sudo apt-get update && sudo apt-get install -y python3 python3-venv git
+# GitHub（国内可换 Gitee 镜像：https://gitee.com/a12hgl/fnos_music_ext.git）
 git clone https://github.com/12hgl/fnos_music_ext.git fnmusic_ext
 cd fnmusic_ext
 chmod +x install.sh extend.sh restore.sh proxy/run_proxy.sh
@@ -255,6 +263,7 @@ repo-src/
 ├── webui-service/      管理界面（app.py / static/{index.html,app.js,style.css}）
 ├── container/          单容器镜像构建与 supervisor 编排
 ├── scripts/            e2e_check.sh / collect_support_info.sh / repair_unknown_library.py
+├── latest/             最新安装包（文件名不含版本号，发版时由 Action 自动覆盖更新）
 ├── install.sh          安装向导脚本
 ├── extend.sh           接管/重启脚本
 ├── restore.sh          还原脚本

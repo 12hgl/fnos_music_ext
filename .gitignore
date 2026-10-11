@@ -38,6 +38,9 @@ dist/
 packaging/fpk/.build/
 *.fpk
 *.fpk.sha256
+# latest/ 恒定下载目录：发版时由 Action 覆盖更新，需纳入版本库
+!latest/fnmusic-ext.fpk
+!latest/fnmusic-ext-arm64.fpk
 node_modules/
 site-packages/
 venv/
