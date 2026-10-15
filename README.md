@@ -3,7 +3,7 @@
 [![GitHub Repo](https://img.shields.io/badge/GitHub-12hgl%2Ffnos_music_ext-blue)](https://github.com/12hgl/fnos_music_ext)
 [![Gitee Repo](https://img.shields.io/badge/Gitee-a12hgl%2Ffnos_music_ext-red)](https://gitee.com/a12hgl/fnos_music_ext)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.0.3-green.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-3.1.0-green.svg)](VERSION)
 
 > **仓库地址**：GitHub [12hgl/fnos_music_ext](https://github.com/12hgl/fnos_music_ext) ｜ Gitee 镜像 [a12hgl/fnos_music_ext](https://gitee.com/a12hgl/fnos_music_ext)（与 GitHub 同步发行，国内访问更快）。
 
@@ -79,7 +79,9 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-核心代理必须在宿主机以 systemd 运行（接管 Socket）；音源 + WebUI 合并为一个 Docker 容器，镜像内由 supervisor 按需管理进程，启动时读取挂载的 `.env` 只拉起所选进程——常驻内存约 100-200MB。
+核心代理必须在宿主机以 systemd 运行（接管 Socket）；音源 + WebUI 的部署形态**二选一、同机互斥**：
+- **Docker 单容器**（默认）：镜像内由 supervisor 按需管理进程，启动时读取挂载的 `.env` 只拉起所选进程——常驻内存约 100-200MB；
+- **原生（无 Docker）**：宿主机 systemd unit（`fnmusic-sources.service`）内的 supervisord 按需拉起所选音源 + WebUI，代码在仓库目录、依赖装在 `.venv-sources`，直接监听相同的 `127.0.0.1` 端口，与容器形态**端口/URL/healthz 契约完全一致**。
 
 ---
 
@@ -88,7 +90,9 @@
 ### 前置条件
 
 1. fnOS 已在「应用中心」安装并启动官方**飞牛音乐**应用；
-2. fnOS 已安装 **Docker**（v2.0.0 起仅支持 Docker 部署音源，未安装 Docker 会直接报错退出）。
+2. 音源运行环境二选一（v3.1.0 起支持**免 Docker 原生部署**）：
+   - **Docker**（默认）：安装了 Docker 即自动采用单容器 `fnmusic-sources`；
+   - **原生（无 Docker）**：未安装 Docker 的设备可用 `./install.sh --deploy native`，音源与 WebUI 由宿主机 systemd unit 内的 supervisord 按需拉起，直接监听 `127.0.0.1:8768/8770/8776/8772/8774`，功能与 Docker 形态完全一致。
 
 ### 安装（推荐：应用中心 fpk 包）
 
@@ -149,6 +153,18 @@ chmod +x install.sh extend.sh restore.sh proxy/run_proxy.sh
   --lx-source-url "$HOME/scripts/my-source.js" --extend   # 本机路径自动复制进数据卷
 ./install.sh --non-interactive --sources lxmusic --webui --extend  # 无源安装
 ```
+
+#### 免 Docker 原生部署（v3.1.0 起）
+
+未安装 Docker 的设备可直接以原生形态部署（`--deploy native`）；两种形态共用同一份 `.env` 与 `sources-data` 数据目录，可随时互切（洛雪 `file://` 源路径自动迁移，数据零拷贝）：
+
+```bash
+./install.sh --deploy native                 # 原生安装（宿主机 systemd + supervisord）
+./install.sh --deploy docker                 # 切回 Docker 单容器
+./install.sh --deploy native --adopt         # 跨目录迁移部署（部署登记/unit 属于其他目录时）
+```
+
+原生形态下，`git pull` 后重跑 `./extend.sh` 即完成升级（自动比对服务代码/.env 变更并重启对齐）；运行时依赖（五服务 requirements 并集 + supervisor + nodejs/ffmpeg）由 `ensure_sources_native.sh` 幂等补齐。
 
 ### 验证
 
@@ -261,11 +277,13 @@ repo-src/
 ├── neteasefree-service/  neteasefree 免扫码音源服务（本仓库新增）
 ├── lxmusic-service/    洛雪自定义源运行时
 ├── webui-service/      管理界面（app.py / static/{index.html,app.js,style.css}）
-├── container/          单容器镜像构建与 supervisor 编排
+├── container/          单容器镜像构建与 supervisor 编排（含原生 supervisord-native.conf.in）
 ├── scripts/            e2e_check.sh / collect_support_info.sh / repair_unknown_library.py
 ├── latest/             最新安装包（文件名不含版本号，发版时由 Action 自动覆盖更新）
-├── install.sh          安装向导脚本
-├── extend.sh           接管/重启脚本
+├── install.sh          安装向导脚本（--deploy docker|native 形态选择）
+├── extend.sh           接管/重启脚本（按 FNMUSIC_DEPLOY_MODE 分派）
+├── ensure_sources_native.sh  原生形态运行时依赖保障
+├── fnmusic-sources-native.service.in  原生音源 systemd unit 模板
 ├── restore.sh          还原脚本
 ├── fnmusic-ext.service 宿主机 systemd 服务文件
 └── .env.example        完整配置键项示例

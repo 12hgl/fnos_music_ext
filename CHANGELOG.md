@@ -6,6 +6,24 @@
 > **关于版本号**：自 v3.0.0 起，fnmusic-ext 采用独立版本号，避免与仓库内其他项目及上游（如 lxmusic-service 的 2.x）版本号混淆。
 > **发版规则**：默认只递增小版本（补丁位，`x.y.Z`）；如需递增中版本（`x.Y.z`），会在发版说明中明确指定。
 
+## [3.1.0] - 2026-10-15
+
+### 新增
+
+- **原生（免 Docker）部署形态**（同步自上游 2.8.0）：未安装 Docker 的设备可用 `./install.sh --deploy native` 部署——音源与 WebUI 由宿主机 systemd unit `fnmusic-sources.service` 内的 supervisord 按需拉起（`autostart=false`，只启动当前所选音源），直接监听与容器发布完全一致的 `127.0.0.1:8768/8770/8776/8772/8774` 端口，代理侧 `.env` 的音源 URL 与 `healthz` 契约零改动。运行时依赖（五服务 `requirements` 并集 + pip `supervisor` + `nodejs`/`ffmpeg`，缺失时经 apt 自动补装）由 `ensure_sources_native.sh` 幂等保障，代码在仓库目录、venv 在 `.venv-sources`、supervisor 套接字与日志在 `sources-native/`。
+
+### 变更
+
+- **两种部署形态共用同一份配置与数据**：`docker` 与 `native` 共享同一份 `.env` 与 `sources-data` 数据目录，同机互斥；`--deploy` 一键互切（`docker`↔`native`），切换时自动改写 `.env` 内洛雪 `file://` 源路径（容器内 `/data/lxmusic/uploads/...` ↔ 宿主 `<repo>/sources-data/lxmusic/uploads/...`），数据零拷贝、免手动搬目录。
+- **`./extend.sh` 按形态分派**：读取 `.env` 的 `FNMUSIC_DEPLOY_MODE`，docker 分支行为与既有版本一致；native 分支确保 unit 已安装归属本目录、幂等补依赖、比对服务代码/`.env` 与 unit 启动时间戳并按需重启对齐（等价 Docker 形态的镜像重建 + `docker restart`），恢复/诊断路径亦按形态分派（`diagnose_native`）。
+- **部署登记记录形态**：`deployment-remember --deploy-mode docker|native`，跨目录部署需 `--adopt` 迁移。
+
+### 修复（同步自上游原生部署相关修复）
+
+- **`unit_working_dir` 解析健壮性**：改用 `python3` 解析 unit 文件的 `WorkingDirectory`，正确处理引号与 systemd `%%` 转义，避免跨目录部署归属误判。
+- **原生模板渲染路径安全**：`render_native_placeholders` 校验路径不含换行/引号/反斜杠，并对 supervisord 配置内 `WEBUI_SUPERVISORCTL` 的嵌套引号做转义；WebUI 侧按 shell 词法拆分 `WEBUI_SUPERVISORCTL`（可携带 `-c <conf>` 参数）。
+- **`.env` 原子写保留原属主**：`write_env_atomic` 在 root 运行 native 安装时保留既有 `.env` 的 uid/gid，避免属主变为 root 导致后续非 root 用户无法读写。
+
 ## [3.0.3] - 2026-10-11
 
 ### 修复

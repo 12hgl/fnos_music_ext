@@ -13,6 +13,7 @@ import io
 import logging
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -46,7 +47,7 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger("webui_service")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-SERVICE_VERSION = "3.0.3"
+SERVICE_VERSION = "3.1.0"
 
 CONF = {
     "repo_dir": os.environ.get("WEBUI_REPO_DIR", "/repo"),
@@ -210,7 +211,9 @@ def write_env(updates: dict[str, str]) -> list[str]:
 # ------------------------------------------------------------------ supervisor --
 
 def supervisorctl(*args: str, timeout: float = 20.0) -> tuple[int, str]:
-    cmd = [CONF["supervisorctl"], *args]
+    # WEBUI_SUPERVISORCTL 可携带参数（如 "supervisorctl -c /path/supervisord.conf"），
+    # 按 shell 词法拆分；默认裸 "supervisorctl" 拆分后行为不变。
+    cmd = shlex.split(CONF["supervisorctl"]) + list(args)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
