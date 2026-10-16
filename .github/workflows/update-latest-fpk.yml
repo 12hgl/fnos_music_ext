@@ -1,9 +1,11 @@
 name: 更新 latest 安装包
 
-# 每次发布新版本（Release published）后，自动重新打包 x86 / arm64 安装包，
-# 覆盖写入 latest/ 目录（文件名固定、不含版本号），提供恒定下载链接：
-#   https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext.fpk
-#   https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext-arm64.fpk
+# 每次发布新版本（Release published）后，自动重新打包 x86 / arm64 安装包：
+#   1) 覆盖写入 latest/ 目录（文件名固定、不含版本号），提供恒定下载链接：
+#      https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext.fpk
+#      https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext-arm64.fpk
+#   2) 将版本化安装包附加到该 Release 的 Assets（fnmusic-ext-<版本>.fpk / -arm64.fpk）。
+# 参考 v3.1.0 的历史发布形态（不带 .sha256 校验文件）。
 on:
   release:
     types: [published]
@@ -43,6 +45,21 @@ jobs:
           cp -f "dist/fnmusic-ext-${VERSION}.fpk" latest/fnmusic-ext.fpk
           cp -f "dist/fnmusic-ext-${VERSION}-arm64.fpk" latest/fnmusic-ext-arm64.fpk
           ls -l latest
+
+      - name: 附加版本化安装包到 Release Assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(head -n1 VERSION | tr -d '[:space:]')"
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "dist/fnmusic-ext-${VERSION}.fpk" \
+            "dist/fnmusic-ext-${VERSION}-arm64.fpk" \
+            --repo "${{ github.repository }}" --clobber
+          gh release view "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" --json assets \
+            --jq '.assets[] | "\(.name)  \(.size) bytes"' || true
 
       - name: 提交并推送
         run: |
