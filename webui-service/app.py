@@ -47,7 +47,7 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger("webui_service")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-SERVICE_VERSION = "3.1.0"
+SERVICE_VERSION = "3.1.1"
 
 CONF = {
     "repo_dir": os.environ.get("WEBUI_REPO_DIR", "/repo"),
@@ -141,6 +141,10 @@ SCHEMA: dict[str, dict] = {
     "FNMUSIC_TEE_SAVE_ENABLED": {"kind": "bool", "default": "true", "group": "tee", "reload": "hot", "label": "边听边存"},
     "FNMUSIC_TEE_SAVE_DIR": {"kind": "str", "default": "", "group": "tee", "reload": "hot", "label": "保存路径（留空自动探测）"},
     "FNMUSIC_TEE_CACHE_MAX": {"kind": "int", "default": "2", "min": 1, "max": 100, "group": "tee", "reload": "hot", "label": "关闭时滚动缓存数"},
+    "FNMUSIC_CACHE_DIR": {"kind": "str", "default": "", "group": "tee", "reload": "hot", "label": "缓存存储位置（留空=默认 cache/）"},
+    "FNMUSIC_AUTO_CACHE_FIRST": {"kind": "bool", "default": "false", "group": "tee", "reload": "hot", "label": "自动缓存第一首歌曲"},
+    "FNMUSIC_AUTO_CACHE_NEXT": {"kind": "bool", "default": "false", "group": "tee", "reload": "hot", "label": "自动缓存下一首歌曲"},
+    "FNMUSIC_AUTO_CACHE_PURGE": {"kind": "bool", "default": "true", "group": "tee", "reload": "hot", "label": "自动清除歌曲缓存"},
     "FNMUSIC_FAV_AUTO_BIND": {"kind": "bool", "default": "false", "group": "tee", "reload": "hot", "label": "收藏自动绑定本地"},
     "FNMUSIC_AUTO_COVER": {"kind": "bool", "default": "true", "group": "tee", "reload": "hot", "label": "自动下载封面"},
     "FNMUSIC_LYRIC_AUTO_DL": {"kind": "bool", "default": "false", "group": "tee", "reload": "hot", "label": "自动下载歌词"},

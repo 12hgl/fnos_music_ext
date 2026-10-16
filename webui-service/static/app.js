@@ -58,10 +58,20 @@ function clearDirty() {
 function switchPage(page) {
   $$(".page").forEach((el) => el.classList.toggle("active", el.id === "page-" + page));
   $$("[data-page]").forEach((el) => el.classList.toggle("active", el.dataset.page === page));
-  if (page === "playlist") loadCustomPlaylists();
-  if (page === "about") loadAbout();
+  if (page === "playlist") { loadCustomPlaylists(); showPlaylistList(); }
+  if (page === "settings") loadAbout();
 }
 $$("[data-page]").forEach((btn) => btn.addEventListener("click", () => switchPage(btn.dataset.page)));
+
+/* -------------------------------------------------------------- 设置（行式简介，点标题展开） */
+$$(".setting-head").forEach((head) =>
+  head.addEventListener("click", () => {
+    const row = head.closest(".setting-row");
+    if (!row) return;
+    const open = row.classList.toggle("open");
+    const body = row.querySelector(".setting-body");
+    if (body) body.hidden = !open;
+  }));
 
 /* -------------------------------------------------------------- 概览 */
 async function loadStatus() {
@@ -138,6 +148,10 @@ function applyConfigToForm() {
   $("#bind-timeout").value = v.FNMUSIC_OFFICIAL_BIND_TIMEOUT_S || "120";
   $("#handoff-max").value = v.FNMUSIC_TEE_HANDOFF_MAX != null ? v.FNMUSIC_TEE_HANDOFF_MAX : "3";
   $("#scan-path").value = v.FNMUSIC_LIBRARY_SCAN_PATH || "";
+  $("#auto-cache-first").checked = v.FNMUSIC_AUTO_CACHE_FIRST === "true";
+  $("#auto-cache-next").checked = v.FNMUSIC_AUTO_CACHE_NEXT === "true";
+  $("#auto-cache-purge").checked = v.FNMUSIC_AUTO_CACHE_PURGE !== "false";
+  $("#cache-dir").value = v.FNMUSIC_CACHE_DIR || "";
   updateTeeCountLabel();
   updateBindTimeoutLabel();
   $("#llm-provider").value = v.FNMUSIC_LLM_PROVIDER || "kilo";
@@ -151,6 +165,7 @@ function applyConfigToForm() {
   $("#lx-url").value = v.LX_SOURCE_URL || "";
   lxVerifiedUrl = v.LX_SOURCE_URL || null;
   renderPlatformChips();
+  renderPlaylistList();
 }
 
 function collectConfig() {
@@ -176,6 +191,10 @@ function collectConfig() {
     FNMUSIC_OFFICIAL_BIND_TIMEOUT_S: parseInt($("#bind-timeout").value || "120", 10) || 120,
     FNMUSIC_TEE_HANDOFF_MAX: parseInt($("#handoff-max").value || "3", 10) || 0,
     FNMUSIC_LIBRARY_SCAN_PATH: $("#scan-path").value.trim(),
+    FNMUSIC_CACHE_DIR: $("#cache-dir").value.trim(),
+    FNMUSIC_AUTO_CACHE_FIRST: $("#auto-cache-first").checked,
+    FNMUSIC_AUTO_CACHE_NEXT: $("#auto-cache-next").checked,
+    FNMUSIC_AUTO_CACHE_PURGE: $("#auto-cache-purge").checked,
     FNMUSIC_LLM_PROVIDER: $("#llm-provider").value,
     FNMUSIC_LLM_BASE_URL: $("#llm-base").value.trim(),
     FNMUSIC_LLM_API_KEY: $("#llm-key").value.trim(),
@@ -575,10 +594,10 @@ $("#lx-pick").addEventListener("click", lxPickFromNas);
 })();
 
 /* -------------------------------------------------------------- 表单脏标记 */
-["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path"].forEach((sel) =>
+["#tee-dir", "#tee-max", "#llm-base", "#llm-key", "#llm-model", "#lx-url", "#search-timeout", "#bind-timeout", "#handoff-max", "#scan-path", "#cache-dir"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
 $$("input[name=quality]").forEach((el) => el.addEventListener("change", () => markDirty("音质偏好需保存后生效")));
-["#recommend-daily", "#search-probe", "#tee-enabled", "#fav-autobind", "#auto-cover", "#lyric-auto-dl", "#netease-my-playlists"].forEach((sel) =>
+["#recommend-daily", "#search-probe", "#tee-enabled", "#fav-autobind", "#auto-cover", "#lyric-auto-dl", "#netease-my-playlists", "#auto-cache-first", "#auto-cache-next", "#auto-cache-purge"].forEach((sel) =>
   $(sel).addEventListener("change", () => markDirty()));
 ["#recommend-categories", "#recommend-category-size", "#recommend-size"].forEach((sel) =>
   $(sel).addEventListener("input", () => markDirty()));
@@ -744,33 +763,106 @@ function syncCpPanels() {
 }
 $$("input[name=cp-mode]").forEach((el) => el.addEventListener("change", syncCpPanels));
 
-function renderCustomPlaylists() {
-  const box = $("#custom-playlist-list");
+/* 内置歌单（配置驱动的固定项）与自定义歌单统一在一张列表里管理。 */
+const BUILTIN_PLAYLISTS = [
+  { id: "daily", name: "每日推荐", meta: "内置 · 按曲量聚合网易推荐" },
+  { id: "categories", name: "分类歌单", meta: "内置 · 每个分类各生成一个歌单" },
+  { id: "charts", name: "排行榜歌单", meta: "内置 · 酷狗 / 网易云热门榜单" },
+  { id: "netease", name: "网易账号歌单", meta: "内置 · 网易账号只读歌单" },
+];
+const PL_DETAIL_TITLE = {
+  daily: "每日推荐", categories: "分类歌单", charts: "排行榜歌单",
+  netease: "网易账号歌单", custom: "编辑自定义歌单", new: "新增自定义歌单",
+};
+
+let editingPlaylistId = null; // 详情页当前编辑的自定义歌单 id
+
+function builtinPlaylistState() {
+  const v = configValues;
+  return {
+    daily: v.FNMUSIC_RECOMMEND_DAILY === "true",
+    categories: (v.FNMUSIC_RECOMMEND_CATEGORIES || "").trim() !== "",
+    charts: v.FNMUSIC_RECOMMEND_CHARTS !== "false",
+    netease: v.FNMUSIC_NETEASE_MY_PLAYLISTS === "true",
+  };
+}
+
+function renderPlaylistList() {
+  const box = $("#playlist-list");
   if (!box) return;
-  if (!customPlaylists.length) {
-    box.innerHTML = `<div class="playlist-empty">还没有自定义歌单，可在下方导入歌单文件或让大模型生成。</div>`;
-    return;
-  }
-  box.innerHTML = customPlaylists.map((p) => {
+  const state = builtinPlaylistState();
+  const builtinRows = BUILTIN_PLAYLISTS.map((b) => {
+    const on = state[b.id];
+    return `<div class="playlist-item ${on ? "" : "disabled"}">
+      <div class="pl-main">
+        <div class="pl-name">${escapeHtml(b.name)} <span class="pl-type">内置</span></div>
+        <div class="pl-meta">${escapeHtml(b.meta)}</div>
+      </div>
+      <span class="pl-badge">${on ? "已启用" : "已关闭"}</span>
+      <div class="pl-actions">
+        <button class="btn pl-edit" data-kind="builtin" data-id="${b.id}">修改</button>
+      </div>
+    </div>`;
+  }).join("");
+  const customRows = customPlaylists.map((p) => {
     const meta = p.mode === "llm"
       ? `大模型点歌 · ${p.prompt ? "已配置提示" : "未配置提示"}`
       : `${p.entryCount} 首 · ${(p.format || "文件").toUpperCase()}`;
-    return `<div class="playlist-item ${p.enabled ? "" : "disabled"}" data-id="${p.id}">
+    return `<div class="playlist-item ${p.enabled ? "" : "disabled"}">
       <div class="pl-main">
-        <div class="pl-name">${escapeHtml(p.name)}</div>
+        <div class="pl-name">${escapeHtml(p.name)} <span class="pl-type">自定义</span></div>
         <div class="pl-meta">${escapeHtml(meta)}</div>
       </div>
       <span class="pl-badge">${p.enabled ? "已启用" : "已关闭"}</span>
       <div class="pl-actions">
-        <button class="btn pl-toggle" data-id="${p.id}">${p.enabled ? "关闭" : "启用"}</button>
-        <button class="btn pl-del" data-id="${p.id}">删除</button>
+        <button class="btn pl-edit" data-kind="custom" data-id="${escapeHtml(p.id)}">修改</button>
+        <button class="btn pl-del" data-id="${escapeHtml(p.id)}">删除</button>
       </div>
     </div>`;
   }).join("");
-  box.querySelectorAll(".pl-toggle").forEach((b) =>
-    b.addEventListener("click", () => toggleCustomPlaylist(b.dataset.id)));
+  box.innerHTML = builtinRows +
+    (customRows || `<div class="playlist-empty">还没有自定义歌单，点「+ 新增自定义歌单」导入或让大模型生成。</div>`);
+  box.querySelectorAll(".pl-edit").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (b.dataset.kind === "builtin") showPlaylistDetail(b.dataset.id);
+      else openCustomDetail(b.dataset.id);
+    }));
   box.querySelectorAll(".pl-del").forEach((b) =>
     b.addEventListener("click", () => deleteCustomPlaylist(b.dataset.id)));
+}
+
+function showPlaylistList() {
+  const lv = $("#pl-list-view");
+  if (!lv) return;
+  $("#pl-detail-view").hidden = true;
+  lv.hidden = false;
+  $$(".pl-detail").forEach((el) => { el.hidden = true; });
+  editingPlaylistId = null;
+  renderPlaylistList();
+}
+
+function showPlaylistDetail(which) {
+  if (!PL_DETAIL_TITLE[which]) return;
+  $("#pl-list-view").hidden = true;
+  $("#pl-detail-view").hidden = false;
+  $$(".pl-detail").forEach((el) => { el.hidden = el.id !== "pl-detail-" + which; });
+  $("#pl-detail-title").textContent = PL_DETAIL_TITLE[which] || "";
+}
+
+function openCustomDetail(id) {
+  const p = customPlaylists.find((x) => x.id === id);
+  if (!p) return;
+  editingPlaylistId = id;
+  $("#plt-detail-name").textContent = p.name;
+  $("#plt-detail-type").textContent = p.mode === "llm"
+    ? "大模型点歌" : `导入文件（${(p.format || "文件").toUpperCase()}）`;
+  $("#plt-detail-count").textContent = `${p.entryCount} 首`;
+  $("#plt-name").value = p.name;
+  const isLlm = p.mode === "llm";
+  $("#plt-prompt-wrap").hidden = !isLlm;
+  $("#plt-prompt").value = p.prompt || "";
+  $("#plt-toggle").textContent = p.enabled ? "关闭歌单" : "启用歌单";
+  showPlaylistDetail("custom");
 }
 
 async function loadCustomPlaylists() {
@@ -780,23 +872,7 @@ async function loadCustomPlaylists() {
   } catch (_) {
     customPlaylists = [];
   }
-  renderCustomPlaylists();
-}
-
-async function toggleCustomPlaylist(id) {
-  const p = customPlaylists.find((x) => x.id === id);
-  if (!p) return;
-  try {
-    await api("/api/custom-playlists/" + encodeURIComponent(id), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !p.enabled }),
-    });
-    toast(p.enabled ? "已关闭歌单" : "已启用歌单", "ok");
-    await loadCustomPlaylists();
-  } catch (exc) {
-    toast("操作失败：" + exc.message, "fail");
-  }
+  renderPlaylistList();
 }
 
 async function deleteCustomPlaylist(id) {
@@ -806,11 +882,53 @@ async function deleteCustomPlaylist(id) {
   try {
     await api("/api/custom-playlists/" + encodeURIComponent(id), { method: "DELETE" });
     toast("已删除歌单", "ok");
+    editingPlaylistId = null;
     await loadCustomPlaylists();
+    showPlaylistList();
   } catch (exc) {
     toast("删除失败：" + exc.message, "fail");
   }
 }
+
+/* 歌单详情页操作：返回、新增入口、自定义歌单编辑/开关/删除 */
+$("#pl-back").addEventListener("click", showPlaylistList);
+$("#pl-add").addEventListener("click", () => showPlaylistDetail("new"));
+$("#plt-save").addEventListener("click", async () => {
+  if (!editingPlaylistId) return;
+  const p = customPlaylists.find((x) => x.id === editingPlaylistId);
+  const payload = { name: $("#plt-name").value.trim() };
+  if (p && p.mode === "llm") payload.prompt = $("#plt-prompt").value.trim();
+  try {
+    await api("/api/custom-playlists/" + encodeURIComponent(editingPlaylistId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("已保存修改", "ok");
+    await loadCustomPlaylists();
+    showPlaylistList();
+  } catch (exc) {
+    toast("保存失败：" + exc.message, "fail");
+  }
+});
+$("#plt-toggle").addEventListener("click", async () => {
+  if (!editingPlaylistId) return;
+  const p = customPlaylists.find((x) => x.id === editingPlaylistId);
+  if (!p) return;
+  try {
+    await api("/api/custom-playlists/" + encodeURIComponent(editingPlaylistId), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !p.enabled }),
+    });
+    toast(p.enabled ? "已关闭歌单" : "已启用歌单", "ok");
+    await loadCustomPlaylists();
+    openCustomDetail(editingPlaylistId);
+  } catch (exc) {
+    toast("操作失败：" + exc.message, "fail");
+  }
+});
+$("#plt-del").addEventListener("click", () => { if (editingPlaylistId) deleteCustomPlaylist(editingPlaylistId); });
 
 $("#cp-upload").addEventListener("click", () => $("#cp-file").click());
 $("#cp-file").addEventListener("change", async () => {
@@ -857,6 +975,7 @@ async function createCustomPlaylist() {
     cpFile = { name: "", text: "" };
     $("#cp-file-note").textContent = "未选择文件";
     await loadCustomPlaylists();
+    showPlaylistList();
   } catch (exc) {
     toast("创建失败：" + exc.message, "fail");
   } finally {

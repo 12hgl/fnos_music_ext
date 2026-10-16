@@ -189,6 +189,5 @@ else
     FINAL="${OUT_DIR}/fnmusic-ext-${VERSION}.fpk"
 fi
 mv "${BUILT}" "${FINAL}"
-( cd "$(dirname "${FINAL}")" && sha256sum "$(basename "${FINAL}")" > "$(basename "${FINAL}").sha256" )
 
 echo "[fpk] 打包完成: ${FINAL}"

@@ -21,8 +21,8 @@
         <button class="nav-item active" data-page="overview">概览</button>
         <button class="nav-item" data-page="source">音乐源</button>
         <button class="nav-item" data-page="playlist">歌单</button>
-        <button class="nav-item" data-page="tee">边听边存</button>
-        <button class="nav-item" data-page="about">关于</button>
+        <button class="nav-item" data-page="cache">缓存</button>
+        <button class="nav-item" data-page="settings">设置</button>
       </nav>
       <div class="sidebar-foot" id="sidebar-foot"></div>
     </aside>
@@ -132,11 +132,6 @@
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-title">网易账号歌单</div>
-          <label class="switch-row"><span>音乐页显示网易账号歌单<div class="sub">需要「网易云音乐盒子」已启用并扫码登录。开启后，网易账号里自己创建的歌单会出现在音乐页「热门推荐」下方、官方歌单上方，点开就能听；收藏的他人歌单不显示。歌单只读：在音乐页往里加歌、移歌或删除都不会写回网易。默认关闭，保存后立即生效。网易云·免扫码音源使用服务端登录态，没有用户账号，此功能不生效。</div></span><input type="checkbox" id="netease-my-playlists"></label>
-        </div>
-
         <!-- 播放（随音乐源统一在本页管理） -->
         <div class="card">
           <div class="card-title">播放 · 音质偏好</div>
@@ -146,117 +141,137 @@
             <label><input type="radio" name="quality" value="smooth"><div><b>流畅</b><span>优先最低档，最快出声</span></div></label>
           </div>
         </div>
-
-        <!-- 搜索（随音乐源统一在本页管理） -->
-        <div class="card">
-          <div class="card-title">搜索</div>
-          <label class="switch-row"><span>逐曲探活(beta)<div class="sub">搜索时预先对候选歌曲进行直链解析与网络探活，确保“搜得到必能播”；但由于第三方音源解析较慢，开启后容易造成搜索超时甚至无法搜出结果，建议保持关闭。</div></span><input type="checkbox" id="search-probe"></label>
-          <label class="field"><span>搜索超时时间</span>
-            <input class="input" id="search-timeout" type="number" min="1" max="60" step="1" inputmode="numeric">
-          </label>
-          <p class="hint">单位为秒，默认 15。在线结果一返回就交给播放，本地歌曲在前；到时还没有就放弃这次在线结果，只返回本地歌曲。保存后立即生效。</p>
-        </div>
       </section>
 
-      <!-- 歌单（推荐 / 自定义歌单 / 大模型 / 榜单 统一管理） -->
+      <!-- 歌单（统一列表 → 点进不同歌单显示不同编辑页） -->
       <section class="page" id="page-playlist">
         <h2>歌单</h2>
-        <p class="hint">推荐、自定义歌单、大模型与排行榜歌单统一在这里管理，样式一致、改动即时生效。</p>
 
-        <!-- 推荐 -->
-        <div class="card">
-          <div class="card-title">推荐</div>
-          <label class="switch-row"><span>每日推荐<div class="sub">独立「每日推荐」歌单；其他音源在配置大模型后生效</div></span><input type="checkbox" id="recommend-daily"></label>
-          <label class="switch-row"><span>分类歌单<div class="sub">按分类各生成一个「每日推荐歌单」（华语/流行…），曲量大；留空即关闭</div></span><input type="checkbox" id="recommend-categories-enabled"></label>
-          <label class="field"><span>分类列表</span><input class="input" id="recommend-categories" placeholder="华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士"></label>
-          <label class="field"><span>每类曲量</span><input class="input" id="recommend-category-size" type="number" min="20" max="1000" step="10" placeholder="200"></label>
-          <label class="field"><span>每日/热门曲量</span><input class="input" id="recommend-size" type="number" min="20" max="1000" step="10" placeholder="200"></label>
-          <p class="hint">每日/热门推荐的目标曲量，默认 200。每日推荐由网易推荐歌单聚合补齐到此数量；改大后当天缓存会重建，可在软件启动预热后稍等片刻。</p>
+        <!-- 列表视图 -->
+        <div id="pl-list-view">
+          <p class="hint">内置歌单（每日推荐、分类歌单、排行榜、网易账号歌单）与自定义歌单统一在这里管理。每行一个歌单，点「修改」进入对应编辑页；改动保存后即时生效。</p>
+          <div class="btn-row">
+            <button class="btn primary" id="pl-add">+ 新增自定义歌单</button>
+          </div>
+          <div id="playlist-list" class="playlist-list"></div>
         </div>
 
-        <!-- 自定义歌单 -->
-        <div class="card">
-          <div class="card-title">自定义歌单</div>
-          <p class="hint">导入常用歌单文件（<strong>.m3u / .m3u8 / .pls / .cue</strong>）或由内置大模型按提示生成；逐首在线检索、可播校验，<strong>仅在线播放、不下载</strong>，会显示在音乐 App 的曲库歌单中。可单独启用/关闭或删除，改动即时生效。</p>
-          <div id="custom-playlist-list" class="playlist-list"></div>
+        <!-- 详情视图 -->
+        <div id="pl-detail-view" hidden>
+          <div class="pl-detail-head">
+            <button class="btn ghost" id="pl-back" type="button">← 返回歌单列表</button>
+            <span class="pl-detail-title" id="pl-detail-title"></span>
+          </div>
 
-          <div class="subblock">
-            <div class="card-title sub">新增自定义歌单</div>
-            <label class="field"><span>名称（留空自动取名）</span><input class="input" id="cp-name" placeholder="我的歌单"></label>
-            <div class="radio-list" id="cp-mode">
-              <label><input type="radio" name="cp-mode" value="file" checked><div><b>导入歌单文件</b><span>支持 .m3u / .m3u8 / .pls / .cue</span></div></label>
-              <label><input type="radio" name="cp-mode" value="llm"><div><b>大模型点歌</b><span>填写任意提示，由大模型生成歌曲列表</span></div></label>
+          <!-- 每日推荐 -->
+          <div class="pl-detail" id="pl-detail-daily" hidden>
+            <div class="card">
+              <div class="card-title">每日推荐</div>
+              <label class="switch-row"><span>每日推荐<div class="sub">独立「每日推荐」歌单；其他音源在配置大模型后生效</div></span><input type="checkbox" id="recommend-daily"></label>
+              <label class="field"><span>每日/热门曲量</span><input class="input" id="recommend-size" type="number" min="20" max="1000" step="10" placeholder="200"></label>
+              <p class="hint">每日/热门推荐的目标曲量，默认 200。每日推荐由网易推荐歌单聚合补齐到此数量；改大后当天缓存会重建，可在软件启动预热后稍等片刻。</p>
             </div>
-            <div id="cp-file-panel">
-              <div class="btn-row">
-                <input type="file" id="cp-file" accept=".m3u,.m3u8,.pls,.cue" hidden>
-                <button class="btn" id="cp-upload">选择歌单文件</button>
-                <span id="cp-file-note" class="muted">未选择文件</span>
+          </div>
+
+          <!-- 分类歌单 -->
+          <div class="pl-detail" id="pl-detail-categories" hidden>
+            <div class="card">
+              <div class="card-title">分类歌单</div>
+              <label class="switch-row"><span>分类歌单<div class="sub">按分类各生成一个「每日推荐歌单」（华语/流行…），曲量大；留空即关闭</div></span><input type="checkbox" id="recommend-categories-enabled"></label>
+              <label class="field"><span>分类列表</span><input class="input" id="recommend-categories" placeholder="华语,流行,摇滚,民谣,电子,古风,说唱,轻音乐,爵士"></label>
+              <label class="field"><span>每类曲量</span><input class="input" id="recommend-category-size" type="number" min="20" max="1000" step="10" placeholder="200"></label>
+            </div>
+          </div>
+
+          <!-- 排行榜歌单 -->
+          <div class="pl-detail" id="pl-detail-charts" hidden>
+            <div class="card">
+              <div class="card-title">排行榜歌单 · 总开关</div>
+              <p class="hint">自定义飞牛音乐左侧栏显示的在线排行榜歌单。支持酷狗与网易云热门榜单，修改勾选后点击底部「保存并生效」即时刷新。</p>
+              <label class="switch-row">
+                <span>启用排行榜歌单<div class="sub">关闭后飞牛音乐左侧栏不显示任何排行榜歌单（每日/热门推荐不受影响）</div></span>
+                <input type="checkbox" id="charts-master-switch">
+              </label>
+              <div class="chart-actions">
+                <button class="chart-mode-btn" id="btn-charts-select-all" type="button">全部启用</button>
+                <button class="chart-mode-btn" id="btn-charts-deselect-all" type="button">全部关闭</button>
+                <button class="chart-mode-btn" id="btn-charts-select-kg" type="button">全选酷狗</button>
+                <button class="chart-mode-btn" id="btn-charts-select-wy" type="button">全选网易云</button>
+                <span class="muted" id="charts-selected-count">已选 0 / 0</span>
               </div>
             </div>
-            <div id="cp-llm-panel" hidden>
-              <label class="field"><span>点歌提示</span><textarea class="input" id="cp-prompt" rows="3" placeholder="例如：来 20 首周杰伦的经典歌曲；或：适合雨天听的华语民谣"></textarea></label>
+            <div class="card">
+              <div class="card-title">酷狗音乐榜单（<span id="kg-charts-count">0</span>）</div>
+              <p class="hint">数据来源于酷狗移动端官方接口，含 TOP500、国潮榜、网络热歌榜等热门排行。</p>
+              <div id="kg-charts-grid" class="chart-grid"></div>
             </div>
-            <div class="btn-row">
-              <button class="btn primary" id="cp-create">创建歌单</button>
-              <span id="cp-create-note" class="muted"></span>
+            <div class="card">
+              <div class="card-title">网易云音乐榜单（<span id="wy-charts-count">0</span>）</div>
+              <p class="hint">数据来源于网易云音乐官方 Toplist，含飙升榜、新歌榜、古典榜、电音榜等。</p>
+              <div id="wy-charts-grid" class="chart-grid"></div>
             </div>
           </div>
-        </div>
 
-        <!-- 大模型 -->
-        <div class="card">
-          <div class="card-title">大模型</div>
-          <p class="hint">大模型用于每日推荐的智能兜底，也支持「自定义歌单」里的点歌生成。默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
-          <label class="field"><span>接入方</span>
-            <select class="input" id="llm-provider">
-              <option value="kilo">内置 Kilo AI Gateway（推荐，免配置）</option>
-              <option value="custom">自定义 OpenAI 兼容接口</option>
-              <option value="none">关闭大模型</option>
-            </select>
-          </label>
-          <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="留空使用内置 Kilo；自定义时如 https://api.example.com/v1"></label>
-          <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="内置 Kilo 免费模型可留空；自定义必填"></label>
-          <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="kilo-auto/free，或自定义 provider/model"></label>
-          <div class="chart-actions">
-            <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
+          <!-- 网易账号歌单 -->
+          <div class="pl-detail" id="pl-detail-netease" hidden>
+            <div class="card">
+              <div class="card-title">网易账号歌单</div>
+              <label class="switch-row"><span>音乐页显示网易账号歌单<div class="sub">需要「网易云音乐盒子」已启用并扫码登录。开启后，网易账号里自己创建的歌单会出现在音乐页「热门推荐」下方、官方歌单上方，点开就能听；收藏的他人歌单不显示。歌单只读：在音乐页往里加歌、移歌或删除都不会写回网易。默认关闭，保存后立即生效。网易云·免扫码音源使用服务端登录态，没有用户账号，此功能不生效。</div></span><input type="checkbox" id="netease-my-playlists"></label>
+            </div>
           </div>
-        </div>
 
-        <!-- 榜单管理（与歌单统一在本页管理） -->
-        <div class="card">
-          <div class="card-title">排行榜歌单 · 总开关</div>
-          <p class="hint">自定义飞牛音乐左侧栏显示的在线排行榜歌单。支持酷狗与网易云热门榜单，修改勾选后点击底部「保存并生效」即时刷新。</p>
-          <label class="switch-row">
-            <span>启用排行榜歌单<div class="sub">关闭后飞牛音乐左侧栏不显示任何排行榜歌单（每日/热门推荐不受影响）</div></span>
-            <input type="checkbox" id="charts-master-switch">
-          </label>
-          <div class="chart-actions">
-            <button class="chart-mode-btn" id="btn-charts-select-all" type="button">全部启用</button>
-            <button class="chart-mode-btn" id="btn-charts-deselect-all" type="button">全部关闭</button>
-            <button class="chart-mode-btn" id="btn-charts-select-kg" type="button">全选酷狗</button>
-            <button class="chart-mode-btn" id="btn-charts-select-wy" type="button">全选网易云</button>
-            <span class="muted" id="charts-selected-count">已选 0 / 0</span>
+          <!-- 编辑已有自定义歌单 -->
+          <div class="pl-detail" id="pl-detail-custom" hidden>
+            <div class="card">
+              <div class="card-title" id="plt-detail-name">自定义歌单</div>
+              <div class="kv"><b>类型</b><span id="plt-detail-type"></span></div>
+              <div class="kv"><b>曲目</b><span id="plt-detail-count"></span></div>
+              <label class="field"><span>名称</span><input class="input" id="plt-name" placeholder="歌单名称"></label>
+              <label class="field" id="plt-prompt-wrap" hidden><span>点歌提示</span><textarea class="input" id="plt-prompt" rows="3" placeholder="例如：来 20 首周杰伦的经典歌曲"></textarea></label>
+              <div class="btn-row">
+                <button class="btn primary" id="plt-save">保存修改</button>
+                <button class="btn" id="plt-toggle">启用/关闭</button>
+                <button class="btn" id="plt-del">删除歌单</button>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="card">
-          <div class="card-title">酷狗音乐榜单（<span id="kg-charts-count">0</span>）</div>
-          <p class="hint">数据来源于酷狗移动端官方接口，含 TOP500、国潮榜、网络热歌榜等热门排行。</p>
-          <div id="kg-charts-grid" class="chart-grid"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">网易云音乐榜单（<span id="wy-charts-count">0</span>）</div>
-          <p class="hint">数据来源于网易云音乐官方 Toplist，含飙升榜、新歌榜、古典榜、电音榜等。</p>
-          <div id="wy-charts-grid" class="chart-grid"></div>
+          <!-- 新增自定义歌单 -->
+          <div class="pl-detail" id="pl-detail-new" hidden>
+            <div class="card">
+              <div class="card-title">新增自定义歌单</div>
+              <p class="hint">导入常用歌单文件（<strong>.m3u / .m3u8 / .pls / .cue</strong>）或由内置大模型按提示生成；逐首在线检索、可播校验，<strong>仅在线播放、不下载</strong>，会显示在音乐 App 的曲库歌单中。可单独启用/关闭或删除，改动即时生效。</p>
+              <label class="field"><span>名称（留空自动取名）</span><input class="input" id="cp-name" placeholder="我的歌单"></label>
+              <div class="radio-list" id="cp-mode">
+                <label><input type="radio" name="cp-mode" value="file" checked><div><b>导入歌单文件</b><span>支持 .m3u / .m3u8 / .pls / .cue</span></div></label>
+                <label><input type="radio" name="cp-mode" value="llm"><div><b>大模型点歌</b><span>填写任意提示，由大模型生成歌曲列表</span></div></label>
+              </div>
+              <div id="cp-file-panel">
+                <div class="btn-row">
+                  <input type="file" id="cp-file" accept=".m3u,.m3u8,.pls,.cue" hidden>
+                  <button class="btn" id="cp-upload">选择歌单文件</button>
+                  <span id="cp-file-note" class="muted">未选择文件</span>
+                </div>
+              </div>
+              <div id="cp-llm-panel" hidden>
+                <label class="field"><span>点歌提示</span><textarea class="input" id="cp-prompt" rows="3" placeholder="例如：来 20 首周杰伦的经典歌曲；或：适合雨天听的华语民谣"></textarea></label>
+              </div>
+              <div class="btn-row">
+                <button class="btn primary" id="cp-create">创建歌单</button>
+                <span id="cp-create-note" class="muted"></span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <!-- 边听边存 -->
-      <section class="page" id="page-tee">
-        <h2>边听边存</h2>
+      <!-- 缓存（边听边存 + 自动缓存） -->
+      <section class="page" id="page-cache">
+        <h2>缓存</h2>
+        <p class="hint">边听边存与自动缓存统一在这里管理，改动保存后即时生效。</p>
+
         <div class="card">
+          <div class="card-title">边听边存</div>
           <label class="switch-row"><span>边听边存<div class="sub">完整试听在线歌后自动保存到本地曲库</div></span><input type="checkbox" id="tee-enabled"></label>
           <label class="switch-row"><span>自动下载封面<div class="sub">自动保存到本地的歌曲会顺带把封面一起下回来，直接嵌进音频文件里；飞牛音乐认的就是内嵌封面，这样官方 App 里下载的歌就有图。歌曲保存成功后才会去下封面，不会出现只有封面没有歌的垃圾文件。默认开启。</div></span><input type="checkbox" id="auto-cover"></label>
           <label class="switch-row"><span>自动下载歌词<div class="sub">自动保存到本地的歌曲在完整下载成功后，自动下载同名 .lrc 歌词放到歌曲同一个文件夹，官方 App 扫描入库后播放就能显示歌词。歌曲下载成功后才会去下歌词，不会出现只有歌词没有歌的垃圾文件。酷我源的歌词接口已失效，暂无歌词。默认关闭。</div></span><input type="checkbox" id="lyric-auto-dl"></label>
@@ -266,9 +281,22 @@
           <label class="field"><span>关闭时滚动缓存 <b id="tee-count-label"></b></span>
             <input class="input" id="tee-max" type="number" min="1" max="100">
           </label>
-          <p class="hint">缓存数仅在关闭边听边存时生效；restore 还原时会一并清理这些滚动缓存。</p>
+          <p class="hint">缓存数仅在关闭边听边存时生效；自动清除歌曲缓存时会一并清理这些滚动缓存。</p>
         </div>
+
         <div class="card">
+          <div class="card-title">自动缓存</div>
+          <label class="switch-row"><span>自动缓存第一首歌曲<div class="sub">播放在线歌曲时立即整轨下载当前这首并保存到本地曲库，无需等到完整听完；默认关闭。开启后每天会自动清理一次临时试听缓存。</div></span><input type="checkbox" id="auto-cache-first"></label>
+          <label class="switch-row"><span>自动缓存下一首歌曲<div class="sub">播放歌单里的歌曲时，按歌单曲序把它紧邻的下一首也整轨下载到本地；单曲播放（无歌单上下文）时不预取。默认关闭。</div></span><input type="checkbox" id="auto-cache-next"></label>
+          <label class="switch-row"><span>自动清除歌曲缓存<div class="sub">每天自动清理一次临时试听缓存（cache/ 下的滚动缓存与同名歌词），不会删除已落库/边听边存的歌曲。默认开启。</div></span><input type="checkbox" id="auto-cache-purge"></label>
+          <label class="field"><span>缓存存储位置</span>
+            <input class="input" id="cache-dir" placeholder="留空=默认 cache/">
+          </label>
+          <p class="hint">临时试听缓存（滚动缓存、转码分片）的存放位置；留空使用插件默认目录。改路径后旧目录的临时缓存不会自动搬迁。</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">收藏自动绑定</div>
           <label class="switch-row"><span>收藏自动绑定本地<div class="sub">收藏或加入歌单的在线歌曲先立即生效，随后在后台自动下载到本地曲库；下载完成后收藏列表或歌单自动绑定已经下载好的本地歌曲而不是绑定在线歌曲。默认关闭。</div></span><input type="checkbox" id="fav-autobind"></label>
           <label class="field"><span>官方绑定等待（秒） <b id="bind-timeout-label"></b></span>
             <input class="input" id="bind-timeout" type="number" min="10" max="3600">
@@ -284,19 +312,73 @@
         </div>
       </section>
 
-      <!-- 关于 -->
-      <section class="page" id="page-about">
-        <h2>关于</h2>
-        <div class="card">
-          <div class="card-title">fnmusic-ext 管理台</div>
-          <div class="kv"><b>当前版本</b><span id="about-version">加载中…</span></div>
-          <div class="kv"><b>开源仓库</b><a id="about-repo" href="#" target="_blank" rel="noopener noreferrer">-</a></div>
-          <p class="hint">感兴趣点个 star 吧！</p>
-          <div class="btn-row">
-            <button class="btn primary" id="about-check">检测更新</button>
-            <span id="about-check-note" class="muted"></span>
+      <!-- 设置 -->
+      <section class="page" id="page-settings">
+        <h2>设置</h2>
+        <p class="hint">全局项一览，点标题展开对应设置。</p>
+        <div class="setting-list">
+          <div class="setting-row" data-section="llm">
+            <div class="setting-head">
+              <div>
+                <div class="setting-name">大模型</div>
+                <div class="setting-desc">用于每日推荐智能兜底与「大模型点歌」；默认内置 Kilo AI Gateway（免配置，免费模型可匿名调用）。</div>
+              </div>
+              <span class="setting-caret">▾</span>
+            </div>
+            <div class="setting-body" hidden>
+              <p class="hint">默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
+              <label class="field"><span>接入方</span>
+                <select class="input" id="llm-provider">
+                  <option value="kilo">内置 Kilo AI Gateway（推荐，免配置）</option>
+                  <option value="custom">自定义 OpenAI 兼容接口</option>
+                  <option value="none">关闭大模型</option>
+                </select>
+              </label>
+              <label class="field"><span>Base URL</span><input class="input" id="llm-base" placeholder="留空使用内置 Kilo；自定义时如 https://api.example.com/v1"></label>
+              <label class="field"><span>API Key</span><input class="input" id="llm-key" type="password" placeholder="内置 Kilo 免费模型可留空；自定义必填"></label>
+              <label class="field"><span>模型</span><input class="input" id="llm-model" placeholder="kilo-auto/free，或自定义 provider/model"></label>
+              <div class="chart-actions">
+                <button class="btn ghost" id="btn-llm-reset" type="button">恢复内置默认（Kilo 免配置）</button>
+              </div>
+            </div>
           </div>
-          <div id="about-update" class="report" hidden></div>
+
+          <div class="setting-row" data-section="search">
+            <div class="setting-head">
+              <div>
+                <div class="setting-name">搜索</div>
+                <div class="setting-desc">在线搜索的探活与超时；逐曲探活会更慢但更准。</div>
+              </div>
+              <span class="setting-caret">▾</span>
+            </div>
+            <div class="setting-body" hidden>
+              <label class="switch-row"><span>逐曲探活(beta)<div class="sub">搜索时预先对候选歌曲进行直链解析与网络探活，确保“搜得到必能播”；但由于第三方音源解析较慢，开启后容易造成搜索超时甚至无法搜出结果，建议保持关闭。</div></span><input type="checkbox" id="search-probe"></label>
+              <label class="field"><span>搜索超时时间</span>
+                <input class="input" id="search-timeout" type="number" min="1" max="60" step="1" inputmode="numeric">
+              </label>
+              <p class="hint">单位为秒，默认 15。在线结果一返回就交给播放，本地歌曲在前；到时还没有就放弃这次在线结果，只返回本地歌曲。保存后立即生效。</p>
+            </div>
+          </div>
+
+          <div class="setting-row" data-section="about">
+            <div class="setting-head">
+              <div>
+                <div class="setting-name">关于</div>
+                <div class="setting-desc">版本信息、开源仓库与在线更新检测。</div>
+              </div>
+              <span class="setting-caret">▾</span>
+            </div>
+            <div class="setting-body" hidden>
+              <div class="kv"><b>当前版本</b><span id="about-version">加载中…</span></div>
+              <div class="kv"><b>开源仓库</b><a id="about-repo" href="#" target="_blank" rel="noopener noreferrer">-</a></div>
+              <p class="hint">感兴趣点个 star 吧！</p>
+              <div class="btn-row">
+                <button class="btn primary" id="about-check">检测更新</button>
+                <span id="about-check-note" class="muted"></span>
+              </div>
+              <div id="about-update" class="report" hidden></div>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -307,8 +389,8 @@
     <button class="nav-item active" data-page="overview">概览</button>
     <button class="nav-item" data-page="source">音源</button>
     <button class="nav-item" data-page="playlist">歌单</button>
-    <button class="nav-item" data-page="tee">缓存</button>
-    <button class="nav-item" data-page="about">关于</button>
+    <button class="nav-item" data-page="cache">缓存</button>
+    <button class="nav-item" data-page="settings">设置</button>
   </nav>
 
   <!-- 保存条 -->

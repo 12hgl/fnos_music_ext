@@ -113,6 +113,13 @@ CONF = {
     "tee_save_enabled": os.environ.get("FNMUSIC_TEE_SAVE_ENABLED", "true").lower() in ("true", "1", "yes"),
     "tee_save_dir": os.environ.get("FNMUSIC_TEE_SAVE_DIR", ""),
     "tee_cache_max": int(os.environ.get("FNMUSIC_TEE_CACHE_MAX", "2")),
+    # 自动缓存（默认关，独立于边听边存）：播放在线曲时把当前曲整轨下载落库
+    # （auto_cache_first），并按其所属歌单曲序预取下一首（auto_cache_next）。
+    # 仅固定窗口取流的客户端 tee 永不触发，自动缓存为其兜底整轨下载。
+    "auto_cache_first": os.environ.get("FNMUSIC_AUTO_CACHE_FIRST", "false").lower() in ("true", "1", "yes"),
+    "auto_cache_next": os.environ.get("FNMUSIC_AUTO_CACHE_NEXT", "false").lower() in ("true", "1", "yes"),
+    # 每日自动清理临时试听缓存（cache/ 滚动音频与同名歌词），不动已落库文件；默认开
+    "auto_cache_purge": os.environ.get("FNMUSIC_AUTO_CACHE_PURGE", "true").lower() in ("true", "1", "yes"),
     # 收藏/加入歌单自动绑定本地：默认关；在线歌曲收藏后后台自动整轨下载并绑定本地文件，
     # 官方曲库收录后再把收藏/歌单写进官方（成功后删本地映射，避免双列表重复显示）
     "fav_auto_bind": os.environ.get("FNMUSIC_FAV_AUTO_BIND", "false").lower() in ("true", "1", "yes"),
@@ -492,6 +499,12 @@ _ENV_WATCH_KEYS: dict[str, tuple[str, str]] = {
     "FNMUSIC_TEE_SAVE_ENABLED": ("tee_save_enabled", "bool"),
     "FNMUSIC_TEE_SAVE_DIR": ("tee_save_dir", "str"),
     "FNMUSIC_TEE_CACHE_MAX": ("tee_cache_max", "tee_cache_max"),
+    # 缓存目录（临时试听/滚动/转码落盘根）与自动缓存开关：路径类通常需重启，
+    # 但此处运行时读取，变更即时生效
+    "FNMUSIC_CACHE_DIR": ("cache_dir", "str"),
+    "FNMUSIC_AUTO_CACHE_FIRST": ("auto_cache_first", "bool"),
+    "FNMUSIC_AUTO_CACHE_NEXT": ("auto_cache_next", "bool"),
+    "FNMUSIC_AUTO_CACHE_PURGE": ("auto_cache_purge", "bool"),
     "FNMUSIC_FAV_AUTO_BIND": ("fav_auto_bind", "bool"),
     "FNMUSIC_OFFICIAL_BIND_TIMEOUT_S": ("official_bind_timeout_s", "bind_timeout"),
     "FNMUSIC_TEE_HANDOFF_MAX": ("tee_handoff_max", "tee_handoff_max"),
@@ -2861,6 +2874,26 @@ async def _lyric_orphan_sweeper() -> None:
         await asyncio.sleep(1800)
 
 
+async def _auto_cache_purge_loop() -> None:
+    """每日清理一次临时试听缓存（cache/ 滚动音频与同名歌词）。
+
+    FNMUSIC_AUTO_CACHE_PURGE 开启时生效（默认开）。只清 cache/ 下的滚动缓存，
+    已落库/边听边存文件不在 cache/，不受影响。启动后先等一段时间再首次执行，
+    之后每 24h 一次，避免与启动预热抢 IO。
+    """
+    await asyncio.sleep(300)
+    while True:
+        try:
+            if CONF.get("auto_cache_purge", True):
+                removed = await asyncio.to_thread(purge_rolling, CONF["cache_dir"], 0)
+                logger.info("auto cache purge: removed %d temp file(s)", len(removed))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("auto cache purge failed: %s", e)
+        await asyncio.sleep(24 * 3600)
+
+
 class _AppShim:
     """推荐预热的 Request 替身：构建链只用到 request.app 取各音源 client。"""
 
@@ -2942,6 +2975,7 @@ async def lifespan(fastapi_app: FastAPI):
         )
 
     sweeper_task = asyncio.create_task(_lyric_orphan_sweeper()) if _background_jobs_enabled() else None
+    purge_task = asyncio.create_task(_auto_cache_purge_loop()) if _background_jobs_enabled() else None
     env_task = asyncio.create_task(_env_watch_loop()) if (
         _background_jobs_enabled() and CONF.get("env_watch", True)
     ) else None
@@ -2998,6 +3032,9 @@ async def lifespan(fastapi_app: FastAPI):
         if sweeper_task:
             sweeper_task.cancel()
             await asyncio.gather(sweeper_task, return_exceptions=True)
+        if purge_task:
+            purge_task.cancel()
+            await asyncio.gather(purge_task, return_exceptions=True)
         if env_task:
             env_task.cancel()
             await asyncio.gather(env_task, return_exceptions=True)
@@ -4101,6 +4138,78 @@ def _register_full_fetch(request: Request, guid: str) -> None:
     _register_background_fetch(request, guid, "tee_save_enabled")
 
 
+def _next_online_guid(items: Any, guid: str) -> str | None:
+    """在曲目列表里找到 guid 紧随其后、仍为在线曲目的那首的 guid。"""
+    if not isinstance(items, list):
+        return None
+    for i, it in enumerate(items):
+        if not isinstance(it, dict) or str(it.get("guid") or "") != guid:
+            continue
+        for follow in items[i + 1:]:
+            if not isinstance(follow, dict):
+                continue
+            nxt = str(follow.get("guid") or "")
+            if is_online_guid(nxt):
+                return nxt
+        return None
+    return None
+
+
+def _next_playlist_guid(guid: str) -> str | None:
+    """当前曲所属歌单里它的下一首（推荐/网易账号/自定义与官方歌单附加条目）。
+
+    只做只读扫描；无歌单上下文（如单曲搜索播放）返回 None，此时不预取。
+    """
+    if not guid:
+        return None
+    for root in (dailyrec.recommend_cache_dir(), nmpl.cache_dir()):
+        for path in _iter_registry_jsons(root):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+            if not isinstance(data, dict):
+                continue
+            nxt = _next_online_guid(data.get("tracks"), guid)
+            if nxt:
+                return nxt
+    try:
+        root = plt_dir()
+        for name in sorted(os.listdir(root)):
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(root, name), encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+            buckets = data.get("items") if isinstance(data, dict) else None
+            if not isinstance(buckets, dict):
+                continue
+            for bucket in buckets.values():
+                nxt = _next_online_guid(bucket, guid)
+                if nxt:
+                    return nxt
+    except OSError:
+        pass
+    return None
+
+
+def _register_auto_cache(request: Request, guid: str, tee_handles: bool) -> None:
+    """自动缓存（FNMUSIC_AUTO_CACHE_FIRST / _NEXT）：把在线曲整轨下载落库。
+
+    与边听边存互补：tee_handles（本次请求会由 tee 落库）时当前曲不重复下载，
+    只预取下一首；定长窗口客户端的 tee 永不触发，由 auto_cache_first 兜底。
+    """
+    if CONF.get("auto_cache_first") and not tee_handles:
+        _register_background_fetch(request, guid, "auto_cache_first")
+    if CONF.get("auto_cache_next"):
+        nxt = _next_playlist_guid(guid)
+        if nxt and nxt != guid:
+            _register_background_fetch(request, nxt, "auto_cache_next")
+
+
 def _register_fav_autobind(request: Request, guid: str, user_guid: str = "",
                            playlist_guid: str | None = None) -> None:
     """收藏/加入歌单的在线歌曲自动绑定本地：登记官方绑定意图并确保整轨下载落库。
@@ -5006,6 +5115,12 @@ async def stream_track(request: Request, subpath: str = ""):
                 if not should_cache(range_header):
                     # 定长窗口客户端：本响应过不了 tee 写盘门，注册后台整轨下载兜底
                     _register_full_fetch(request, candidate)
+                if CONF.get("auto_cache_first") or CONF.get("auto_cache_next"):
+                    # 自动缓存：当前曲整轨落库 + 歌单下一首预取（与边听边存互补，见函数注释）
+                    _register_auto_cache(
+                        request, candidate,
+                        tee_handles=should_cache(range_header) and bool(CONF.get("tee_save_enabled")),
+                    )
                 return stream_tee_response(resp, candidate, range_header,
                     coro_factory=lambda: _online_info(request, candidate, include_lyric=bool(CONF.get("lyric_auto_dl"))),
                     client_to_close=owned,

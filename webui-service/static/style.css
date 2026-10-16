@@ -106,6 +106,29 @@ h2 { margin: 4px 0 14px; font-size: 20px; letter-spacing: .2px; }
   font-size: 12px; border: 1px solid var(--glass-border); border-radius: 999px;
   padding: 2px 8px; color: var(--muted); flex: none;
 }
+.playlist-item .pl-type {
+  font-size: 12px; font-weight: 500; border-radius: 6px; padding: 1px 7px;
+  background: var(--accent-soft); color: var(--accent); vertical-align: middle;
+}
+.pl-detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.pl-detail-title { font-weight: 600; font-size: 15px; }
+
+/* -------------------------------------------------- 设置（行式简介） */
+.setting-list { display: flex; flex-direction: column; gap: 10px; }
+.setting-row {
+  background: var(--glass-soft);
+  border: 1px solid var(--glass-border); border-radius: 12px; overflow: hidden;
+}
+.setting-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; cursor: pointer;
+}
+.setting-name { font-weight: 600; }
+.setting-desc { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.setting-caret { color: var(--muted); flex: none; transition: transform .18s ease; }
+.setting-row.open .setting-caret { transform: rotate(180deg); }
+.setting-body { padding: 4px 14px 14px; border-top: 1px solid var(--glass-border); }
+
 .subblock { border-top: 1px dashed var(--line); margin-top: 14px; padding-top: 12px; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
