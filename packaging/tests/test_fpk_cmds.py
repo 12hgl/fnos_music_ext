@@ -5,7 +5,7 @@ test_fpk_pack.py 只做静态结构断言；本文件把 packaging/fpk/cmd/ 的�
 systemctl/docker/tar/readlink）用 PATH 桩替代，验证各钩子的可观测行为：
 
 - _common：repo 目录三候选定位与优先级、.env 布尔→--sources 推导、数据项通配
-- install_init：Docker/官方 socket 两项硬预检
+- install_init：唯一硬预检是官方 socket（安装固定原生形态，免 Docker）
 - install_callback：向导答案→install.sh 参数映射（默认回退/必填校验/失败透传）
 - upgrade_init：升级前数据 tar 备份（成功内容/失败中止清理）+ 失效 unit 自愈清理
 - upgrade_callback：备份恢复→按 .env 推导音源→重跑安装→删备份
@@ -293,36 +293,21 @@ def held_socket(tmp_path):
         s.close()
 
 
-def test_install_init_fails_without_docker(sb, tmp_path):
-    _socket_variant(sb, tmp_path / "absent.sock")
-    result = sb.run("install_init")
-    assert result.returncode == 1
-    assert "Docker" in result.stderr
-    # 失败原因必须写入 TRIM_TEMP_LOGFILE（应用中心进度 UI 展示）
-    assert "Docker" in (tmp_path / "trim-log.txt").read_text(encoding="utf-8")
-
-
-def test_install_init_fails_without_official_socket(sb, tmp_path):
-    sb.add_docker()
-    _socket_variant(sb, tmp_path / "absent.sock")
-    result = sb.run("install_init")
-    assert result.returncode == 1
-    assert "飞牛音乐" in result.stderr
-
-
-def test_install_init_passes_with_both_prerequisites(sb, tmp_path, held_socket):
-    sb.add_docker()
+def test_install_init_passes_without_docker(sb, tmp_path, held_socket):
+    """安装固定走原生（免 Docker）形态：无 docker 也能通过前置检查。"""
     _socket_variant(sb, held_socket)
     result = sb.run("install_init")
     assert result.returncode == 0, result.stderr
 
 
-def test_install_init_fails_when_docker_daemon_not_running(sb, tmp_path, held_socket):
-    sb.add_docker(rc=1)
-    _socket_variant(sb, held_socket)
+def test_install_init_fails_without_official_socket(sb, tmp_path):
+    # 唯一硬前置是官方飞牛音乐在跑：缺 socket 即失败，与是否有 docker 无关
+    _socket_variant(sb, tmp_path / "absent.sock")
     result = sb.run("install_init")
     assert result.returncode == 1
-    assert "Docker 服务未运行" in result.stderr
+    assert "飞牛音乐" in result.stderr
+    # 失败原因必须写入 TRIM_TEMP_LOGFILE（应用中心进度 UI 展示）
+    assert "飞牛音乐" in (tmp_path / "trim-log.txt").read_text(encoding="utf-8")
 
 
 # -------------------------------------------------------- install_callback ---
@@ -331,7 +316,7 @@ def test_install_callback_defaults_invalid_source_to_musicdl(sb):
     sb.make_repo()
     result = sb.run("install_callback", wizard_sources="bogus", wizard_extend="true")
     assert result.returncode == 0, result.stderr
-    assert sb.install_args() == ["--non-interactive --sources musicdl --webui --adopt --extend"]
+    assert sb.install_args() == ["--non-interactive --deploy native --sources musicdl --webui --adopt --extend"]
 
 
 def test_install_callback_accepts_neteasefree(sb):
@@ -339,7 +324,7 @@ def test_install_callback_accepts_neteasefree(sb):
     sb.make_repo()
     result = sb.run("install_callback", wizard_sources="neteasefree", wizard_extend="true")
     assert result.returncode == 0, result.stderr
-    assert sb.install_args() == ["--non-interactive --sources neteasefree --webui --adopt --extend"]
+    assert sb.install_args() == ["--non-interactive --deploy native --sources neteasefree --webui --adopt --extend"]
 
 
 def test_install_callback_lx_without_url_installs_sourceless(sb):
@@ -347,7 +332,7 @@ def test_install_callback_lx_without_url_installs_sourceless(sb):
     sb.make_repo()
     result = sb.run("install_callback", wizard_sources="lxmusic", wizard_lx_url="")
     assert result.returncode == 0, result.stderr
-    assert sb.install_args() == ["--non-interactive --sources lxmusic --webui --adopt --extend"]
+    assert sb.install_args() == ["--non-interactive --deploy native --sources lxmusic --webui --adopt --extend"]
 
 
 def test_install_callback_lx_url_passthrough_and_extend_off(sb):
@@ -356,7 +341,7 @@ def test_install_callback_lx_url_passthrough_and_extend_off(sb):
                     wizard_lx_url="http://s/y.js", wizard_extend="false")
     assert result.returncode == 0, result.stderr
     assert sb.install_args() == [
-        "--non-interactive --sources lxmusic --webui --adopt --lx-source-url http://s/y.js"]
+        "--non-interactive --deploy native --sources lxmusic --webui --adopt --lx-source-url http://s/y.js"]
 
 
 def test_install_callback_legacy_lx_url_still_passthrough(sb):
@@ -366,7 +351,7 @@ def test_install_callback_legacy_lx_url_still_passthrough(sb):
                     wizard_lx_url="http://s/y.js", wizard_lx_skip_verify="true")
     assert result.returncode == 0, result.stderr
     assert sb.install_args() == [
-        "--non-interactive --sources lxmusic --webui --adopt --lx-source-url http://s/y.js --extend"]
+        "--non-interactive --deploy native --sources lxmusic --webui --adopt --lx-source-url http://s/y.js --extend"]
 
 
 def test_install_callback_lx_skip_verify_off_by_default(sb):
@@ -375,7 +360,7 @@ def test_install_callback_lx_skip_verify_off_by_default(sb):
                     wizard_lx_url="http://s/y.js", wizard_lx_skip_verify="false")
     assert result.returncode == 0, result.stderr
     assert sb.install_args() == [
-        "--non-interactive --sources lxmusic --webui --adopt --lx-source-url http://s/y.js --extend"]
+        "--non-interactive --deploy native --sources lxmusic --webui --adopt --lx-source-url http://s/y.js --extend"]
 
 
 def test_install_callback_install_failure_tails_log(sb):
@@ -607,7 +592,7 @@ def test_upgrade_callback_restores_backup_and_reinstalls_lx(sb):
     # 升级跳过洛雪源可用性校验（--lx-skip-verify）：源服务器临时故障不得卡死升级
     assert "FNMUSIC_LX_ENABLED=true" in (repo / ".env").read_text(encoding="utf-8")
     assert sb.install_args() == [
-        "--non-interactive --sources lxmusic --webui --extend --adopt --lx-source-url http://s/x.js --lx-skip-verify"]
+        "--non-interactive --deploy native --sources lxmusic --webui --extend --adopt --lx-source-url http://s/x.js --lx-skip-verify"]
     # 成功后备份目录删除
     assert not (sb.pkgvar / "upgrade-backup").exists()
 
@@ -631,7 +616,7 @@ def test_upgrade_callback_lx_without_url_still_upgrades(sb):
     _make_backup(sb, repo, "FNMUSIC_LX_ENABLED=true\n")  # 备份缺 LX_SOURCE_URL
     result = sb.run("upgrade_callback")
     assert result.returncode == 0, result.stderr
-    assert sb.install_args() == ["--non-interactive --sources lxmusic --webui --extend --adopt --lx-skip-verify"]
+    assert sb.install_args() == ["--non-interactive --deploy native --sources lxmusic --webui --extend --adopt --lx-skip-verify"]
     # 升级成功后备份清理
     assert not (sb.pkgvar / "upgrade-backup" / "data.tar.gz").exists()
 
@@ -640,7 +625,7 @@ def test_upgrade_callback_without_backup_uses_current_env(sb):
     sb.make_repo(env_text="FNMUSIC_NETEASE_ENABLED=true\n")
     result = sb.run("upgrade_callback")
     assert result.returncode == 0, result.stderr
-    assert sb.install_args() == ["--non-interactive --sources musicbox --webui --extend --adopt"]
+    assert sb.install_args() == ["--non-interactive --deploy native --sources musicbox --webui --extend --adopt"]
 
 
 def test_upgrade_callback_install_failure_keeps_backup(sb):
@@ -661,7 +646,7 @@ def test_upgrade_callback_defaults_to_musicdl_when_env_silent(sb):
     sb.make_repo(env_text="SOME_OTHER_KEY=1\n")
     result = sb.run("upgrade_callback")
     assert result.returncode == 0, result.stderr
-    assert sb.install_args() == ["--non-interactive --sources musicdl --webui --extend --adopt"]
+    assert sb.install_args() == ["--non-interactive --deploy native --sources musicdl --webui --extend --adopt"]
 
 
 # ---------------------------------------------------------- uninstall_init ---
@@ -785,6 +770,15 @@ def test_main_stop_is_idempotent_even_when_all_fail(sb):
     _write_stub(sb.bindir, "docker", "#!/bin/bash\nexit 1\n")
     result = sb.run("main", "stop")
     assert result.returncode == 0, result.stderr
+
+
+def test_main_stop_without_docker_is_clean(sb):
+    """原生形态（免 Docker）：无 docker 时停服务不得报错，也不尝试 docker compose。"""
+    sb.make_repo(with_compose=True)
+    sb.add_systemctl()
+    result = sb.run("main", "stop")
+    assert result.returncode == 0, result.stderr
+    assert not sb.docker_log.exists()
 
 
 def test_main_status_exit_codes(sb):

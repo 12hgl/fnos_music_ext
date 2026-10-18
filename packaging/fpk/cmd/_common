@@ -96,7 +96,8 @@ fnmusic_fail_from_log() {
 fnmusic_cleanup_sources_container() {
     # App Center rolls back TRIM_PKGVAR / target on install failure but does
     # not remove the compose container; an empty-mount orphan then occupies
-    # the global name fnmusic-sources.
+    # the global name fnmusic-sources. 原生形态（免 Docker）无容器：无 docker 跳过。
+    command -v docker >/dev/null 2>&1 || return 0
     docker rm -f fnmusic-sources >/dev/null 2>&1 || true
 }
 

@@ -25,7 +25,9 @@ case "${1:-}" in
     stop)
         # Stopping the unit restores the official socket via ExecStopPost.
         systemctl stop "${UNIT}" >> "${FNMUSIC_LOG}" 2>&1 || true
-        if [ -n "${FNMUSIC_REPO_DIR}" ] && [ -f "${FNMUSIC_REPO_DIR}/docker-compose.yml" ]; then
+        # 原生形态（免 Docker）无容器：仅当本机仍有 docker 且有 compose 文件时才停容器。
+        if [ -n "${FNMUSIC_REPO_DIR}" ] && [ -f "${FNMUSIC_REPO_DIR}/docker-compose.yml" ] \
+            && command -v docker >/dev/null 2>&1; then
             docker compose -f "${FNMUSIC_REPO_DIR}/docker-compose.yml" stop >> "${FNMUSIC_LOG}" 2>&1 || true
         fi
         exit 0

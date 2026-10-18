@@ -18,7 +18,9 @@ fi
 SOURCES="$(fnmusic_saved_source)"
 [ -n "${SOURCES}" ] || SOURCES="musicdl"
 
-ARGS=(--non-interactive --sources "${SOURCES}" --webui --extend --adopt)
+# 部署形态固定为原生（免 Docker），与 install_callback 对齐：已有 docker 容器由
+# 安装器 migrate 清理（remove_conflicting_docker_container），数据目录原样共用。
+ARGS=(--non-interactive --deploy native --sources "${SOURCES}" --webui --extend --adopt)
 if [ "${SOURCES}" = "lxmusic" ]; then
     LX_URL="$(fnmusic_saved_lx_url)"
     # 洛雪源 URL 可能为空（v2.2.7+ 支持无源安装、装后在管理页配置）：

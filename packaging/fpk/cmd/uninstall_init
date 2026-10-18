@@ -21,7 +21,10 @@ if [ -n "${FNMUSIC_REPO_DIR}" ] && [ -f "${FNMUSIC_REPO_DIR}/restore.sh" ]; then
         systemctl disable fnmusic-ext.service >> "${FNMUSIC_LOG}" 2>&1 || true
         rm -f "${FNMUSIC_UNIT_FILE}"
         systemctl daemon-reload >> "${FNMUSIC_LOG}" 2>&1 || true
-        docker rm -f fnmusic-sources >> "${FNMUSIC_LOG}" 2>&1 || true
+        # 原生形态（免 Docker）无容器；有 docker 才尝试清掉遗留容器。
+        if command -v docker >/dev/null 2>&1; then
+            docker rm -f fnmusic-sources >> "${FNMUSIC_LOG}" 2>&1 || true
+        fi
         rm -f "${FNMUSIC_DEPLOYMENT_FILE}"
     fi
 fi
