@@ -72,16 +72,6 @@ $$(".setting-tab").forEach((btn) =>
     $$(".setting-pane").forEach((p) => p.classList.toggle("active", p.id === "spane-" + tab));
   }));
 
-// 行式设置：点行（或右侧「设置」按钮）展开/收起其配置面板；no-toggle 行常开
-$$(".setting-head").forEach((head) =>
-  head.addEventListener("click", () => {
-    const row = head.closest(".setting-row");
-    if (!row || row.classList.contains("no-toggle")) return;
-    const open = row.classList.toggle("open");
-    const body = row.querySelector(".setting-body");
-    if (body) body.hidden = !open;
-  }));
-
 /* -------------------------------------------------------------- 概览 */
 async function loadStatus() {
   try {
@@ -1030,41 +1020,68 @@ async function loadAbout() {
   }
 }
 
-async function checkUpdate() {
+// 「立即更新」：后端按当前机型下载对应 fpk 到 NAS 数据目录，前端再尝试让应用中心自动安装。
+async function updateNow() {
   const box = $("#about-update");
   const btn = $("#about-check");
   box.hidden = false;
   box.className = "report";
-  box.textContent = "正在检测更新（直连不可达时自动走 GitHub 加速代理）…";
+  box.textContent = "正在按当前机型下载安装包（直连不可达时自动走加速代理）…";
   $("#about-check-note").textContent = "";
   btn.disabled = true;
   try {
-    const data = await api("/api/about/update");
+    const data = await api("/api/about/update-now", { method: "POST" });
     if (!data.ok) {
       box.className = "report fail";
-      box.textContent = data.error || "检测失败";
+      box.textContent = "更新失败：" + (data.error || "未知错误");
       return;
     }
-    const latest = data.latest || {};
-    if (data.updateAvailable) {
-      box.className = "report ok";
-      box.innerHTML =
-        `<div class="kv"><b>发现新版本</b>v${escapeHtml(latest.version)}${latest.date ? "（" + escapeHtml(latest.date) + "）" : ""}</div>` +
-        `<div class="kv"><b>当前版本</b>v${escapeHtml(data.current)}</div>` +
-        `<div class="kv"><b>更新内容</b>${escapeHtml(latest.notes || "见仓库更新说明").replace(/\n/g, "<br>")}</div>`;
-      $("#about-check-note").textContent = "请在下方「安装包下载」选择对应机型下载，再到应用中心手动安装";
-    } else {
-      box.className = "report ok";
-      box.textContent = `已是最新版本（v${data.current}）`;
-    }
+    box.className = "report ok";
+    box.innerHTML =
+      `<div class="kv"><b>已下载</b>${escapeHtml(data.label || data.arch)} · ${escapeHtml(data.filename)}（${fmtSize(data.size)}）</div>` +
+      `<div class="kv"><b>目标版本</b>v${escapeHtml(data.version || "-")}</div>`;
+    const result = await tryAutoInstall(data.path);
+    $("#about-check-note").textContent = result.note;
   } catch (exc) {
     box.className = "report fail";
-    box.textContent = "检测失败：" + exc.message;
+    box.textContent = "更新失败：" + exc.message;
   } finally {
     btn.disabled = false;
   }
 }
-$("#about-check").addEventListener("click", checkUpdate);
+
+// 让飞牛应用中心接管安装：桌面内页面与 /app-center 同源，携带登录态直接调其接口。
+// 该接口未在官方文档公开，字段取自 fnOS 命令行工具（packageSourceType=file + path）；
+// 若当前系统版本不匹配会失败，此时回退到「应用中心 → 手动安装」。
+async function tryAutoInstall(path) {
+  if (!path) {
+    return { ok: false, note: "安装包已下载到 NAS，但未能解析其在存储卷上的路径，请在「应用中心 → 手动安装」中选择对应机型安装包。" };
+  }
+  try {
+    const resp = await fetch("/app-center/v1/download/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ packageSourceType: "file", path, immediateStart: true }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (resp.ok && body && body.code === 0) {
+      return { ok: true, note: "已提交飞牛应用中心安装任务，请稍候…" };
+    }
+    const why = !resp.ok ? `HTTP ${resp.status}` : `code ${body.code}${body.msg ? " " + body.msg : ""}`;
+    return { ok: false, note: `自动安装未成功（${why}），请在「应用中心 → 手动安装」选择该文件：${path}` };
+  } catch (exc) {
+    return { ok: false, note: `自动安装不可用（${exc.message}），请在「应用中心 → 手动安装」选择该文件：${path}` };
+  }
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return "";
+  const mb = bytes / 1048576;
+  return mb >= 1 ? mb.toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+
+$("#about-check").addEventListener("click", updateNow);
 
 /* -------------------------------------------------------------- 启动 */
 (async function boot() {

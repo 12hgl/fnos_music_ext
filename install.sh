@@ -1349,6 +1349,8 @@ install_sources_container() {
     fi
     # issue #24：构建日志逐层可见（非 tty 下默认进度条会被压成静默，看似"卡在 55%"）
     export BUILDKIT_PROGRESS="${BUILDKIT_PROGRESS:-plain}"
+    # 把宿主仓库目录注入容器，供 WebUI 将「立即更新」下载的 fpk 路径换算为 /vol... 路径
+    export FNMUSIC_HOST_REPO_DIR="${BASE_DIR}"
     if ! run_docker compose -f "${BASE_DIR}/docker-compose.yml" up -d --build; then
         log_err "Docker 镜像构建或启动失败（compose up --build）。"
         log_err "若日志里反复出现 apt/pip 拉取超时：多为国内网络直连境外源受限，"

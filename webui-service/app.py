@@ -114,6 +114,53 @@ def _package_info(arch: str) -> dict:
     return {"arch": arch, "label": ARCH_LABELS[arch], "filename": filename,
             "direct": direct, "mirrors": mirrors}
 
+
+# 「立即更新」下载目录：仓库内 sources-data/.update（容器内 /repo/sources-data 即数据卷 /data）。
+# sources-data 在打 fpk 时被排除；宿主路径稳定，便于应用中心按存储卷路径安装。
+def _package_dir() -> Path:
+    return Path(CONF["repo_dir"]) / "sources-data" / ".update"
+
+
+def _mount_host_path(container_path: str) -> str | None:
+    """把容器内路径映射为宿主路径：取覆盖它、挂载点最深的 bind mount 的 root 字段。"""
+    target = str(Path(container_path).resolve())
+    best: tuple[int, str] | None = None
+    try:
+        lines = Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 5 or "-" not in fields:
+            continue
+        root, mount = fields[3], fields[4]
+        if mount != "/" and not target.startswith(mount.rstrip("/") + "/"):
+            continue
+        if not root.startswith("/"):
+            continue
+        rel = target[len(mount):].lstrip("/") if mount != "/" else target.lstrip("/")
+        host = f"{root.rstrip('/')}/{rel}".rstrip("/") if rel else root.rstrip("/")
+        if best is None or len(mount) > best[0]:
+            best = (len(mount), host)
+    return best[1] if best else None
+
+
+def _nas_path(container_path: Path) -> str | None:
+    """容器内路径 → 存储卷(/vol...)路径，供飞牛应用中心按路径安装。
+
+    原生部署路径本身已在 /vol 下；Docker 部署优先用安装器注入的 WEBUI_HOST_REPO_DIR，
+    其次解析挂载信息；都拿不到时返回 None（前端回退到手动安装）。
+    """
+    resolved = str(container_path.resolve())
+    if resolved.startswith("/vol"):
+        return resolved
+    repo = str(Path(CONF["repo_dir"]).resolve()).rstrip("/")
+    host_repo = os.environ.get("WEBUI_HOST_REPO_DIR", "").strip().rstrip("/")
+    if host_repo and resolved.startswith(repo):
+        return f"{host_repo}{resolved[len(repo):]}"
+    return _mount_host_path(resolved)
+
+
 # 支持导入的自定义歌单文件格式（与 proxy/recommend.py SUPPORTED_PLAYLIST_EXTS 一致）
 PLAYLIST_EXTS = ("m3u", "m3u8", "pls", "cue")
 
@@ -960,6 +1007,52 @@ async def api_about_update(request: Request):
         },
         "updateAvailable": _version_key(latest) > _version_key(current),
     }
+
+
+@app.post("/api/about/update-now")
+async def api_about_update_now(request: Request):
+    """「立即更新」：按当前机型下载对应 fpk 到 NAS 数据目录，返回可供应用中心安装的路径。
+
+    前端拿到路径后会在飞牛桌面内同源调用应用中心接口尝试自动安装；接口与系统版本
+    不匹配时回退到「应用中心 → 手动安装」。下载走直连 + 加速代理多线路（见 PKG_BASE）。
+    """
+    arch = _host_arch()
+    pkg = _package_info(arch)
+    dest_dir = _package_dir()
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return {"ok": False, "arch": arch, "error": f"无法创建下载目录：{exc}"}
+    dest = dest_dir / pkg["filename"]
+
+    client = get_http(request)
+    last_err = ""
+    for url in [pkg["direct"], *pkg["mirrors"]]:
+        try:
+            resp = await client.get(url, timeout=120.0, follow_redirects=True)
+        except Exception as exc:  # noqa: BLE001
+            last_err = f"{url}：{exc}"
+            continue
+        if resp.status_code >= 400 or not resp.content:
+            last_err = f"{url}：HTTP {resp.status_code}"
+            continue
+        try:
+            dest.write_bytes(resp.content)
+        except OSError as exc:
+            last_err = f"写入失败：{exc}"
+            continue
+        latest = ""
+        for update_url in _update_url_candidates():
+            ok, payload = await _fetch_json(request, update_url, timeout=6.0)
+            if ok and isinstance(payload, dict) and payload.get("version"):
+                latest = str(payload["version"])
+                break
+        return {
+            "ok": True, "arch": arch, "label": pkg["label"], "filename": pkg["filename"],
+            "version": latest or _read_version(), "size": len(resp.content),
+            "path": _nas_path(dest), "source": url,
+        }
+    return {"ok": False, "arch": arch, "error": last_err or "下载安装包失败，请检查网络后重试"}
 
 
 # ------------------------------------------------------------------ 静态前端 --

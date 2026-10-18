@@ -339,9 +339,8 @@
                   <div class="setting-desc">用于每日推荐智能兜底与「大模型点歌」；默认内置 Kilo AI Gateway（免配置，免费模型可匿名调用）。</div>
                 </div>
               </div>
-              <button class="btn setting-action" type="button">设置</button>
             </div>
-            <div class="setting-body" hidden>
+            <div class="setting-body">
               <p class="hint">默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
               <label class="field"><span>接入方</span>
                 <select class="input" id="llm-provider">
@@ -376,9 +375,8 @@
                   <div class="setting-desc">在线搜索的探活与超时；逐曲探活会更慢但更准。</div>
                 </div>
               </div>
-              <button class="btn setting-action" type="button">设置</button>
             </div>
-            <div class="setting-body" hidden>
+            <div class="setting-body">
               <label class="switch-row"><span>逐曲探活(beta)<div class="sub">搜索时预先对候选歌曲进行直链解析与网络探活，确保“搜得到必能播”；但由于第三方音源解析较慢，开启后容易造成搜索超时甚至无法搜出结果，建议保持关闭。</div></span><input type="checkbox" id="search-probe"></label>
               <label class="field"><span>搜索超时时间</span>
                 <input class="input" id="search-timeout" type="number" min="1" max="60" step="1" inputmode="numeric">
@@ -437,11 +435,11 @@
                   </svg>
                 </span>
                 <div>
-                  <div class="setting-name">检测更新</div>
-                  <div class="setting-desc">在线获取最新版本号与更新说明（直连不可达自动走加速代理）。</div>
+                  <div class="setting-name">立即更新</div>
+                  <div class="setting-desc">按当前机型自动下载对应安装包并安装（直连不可达自动走代理加速）。</div>
                 </div>
               </div>
-              <button class="btn primary setting-action" id="about-check" type="button">检测更新</button>
+              <button class="btn primary setting-action" id="about-check" type="button">立即更新</button>
             </div>
             <div class="setting-body">
               <div id="about-update" class="report" hidden></div>

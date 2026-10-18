@@ -24,6 +24,10 @@ services:
         APT_MIRROR: ${FNMUSIC_APT_MIRROR:-https://mirrors.tencent.com}
     image: fnmusic-sources:latest
     container_name: fnmusic-sources
+    environment:
+      # 宿主仓库目录：供 WebUI 把「立即更新」下载的安装包路径换算成存储卷(/vol...)路径，
+      # 交给飞牛应用中心安装。由 install.sh 注入；缺省时 WebUI 回退解析挂载信息。
+      - WEBUI_HOST_REPO_DIR=${FNMUSIC_HOST_REPO_DIR:-}
     ports:
       - "127.0.0.1:8768:8001"  # musicdl（代理访问）
       - "127.0.0.1:8770:8002"  # musicbox（仅本机；扫码走已登录的 WebUI）
