@@ -32,18 +32,18 @@
       "releases": {
         "3.1.2": {
           "changelog": "1. 修复开启「自动缓存第一首 / 自动缓存下一首」后每首加载 0.1s 就自动跳歌、直到播完歌单的问题（登记改到后台执行，不再阻塞取流）\n2. 新增本地配置镜像：重装 / 升级后自动回填 .env，不再丢配置\n3. 设置页改为「顶部子标签 + 行式带右侧按钮」布局：大模型 / 搜索 / 关于 / 更新 四个子标签\n4. 「更新」子标签新增安装包下载：按当前机型（x86 / ARM64）提供 fpk 下载与加速镜像\n5. 新增 FnDepot 外部应用源 fnpack.json：可将本仓库作为外部源添加，自动按机型选择安装包\n6. 重新打包 x86 与 arm64 安装包",
-          "updated_at": "2026-10-18T12:57:12+08:00",
+          "updated_at": "2026-10-18T12:59:11+08:00",
           "os_min_version": "1.2.0",
           "packages": {
             "x86": {
               "download_url": "./latest/fnmusic-ext.fpk",
-              "sha256": "75652eedc71ba3c42e328400420b607f265a13dbe7ce0ada8f6d07a5c3f90d49",
-              "size": 979685
+              "sha256": "8bc01d55db67cf20a84429f651231d628a07fccfeea97c7dfab65af28c9439aa",
+              "size": 976864
             },
             "arm": {
               "download_url": "./latest/fnmusic-ext-arm64.fpk",
-              "sha256": "1873500627fb1e62c8b881b6f61fcf087e90f688d7cfd6bf845550b0d78cb199",
-              "size": 979701
+              "sha256": "a9df95d2b51ee389c5852976bb335007f521af990ae856af567992fa14dcadf6",
+              "size": 976864
             }
           }
         }
