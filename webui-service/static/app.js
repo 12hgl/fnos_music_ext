@@ -63,11 +63,20 @@ function switchPage(page) {
 }
 $$("[data-page]").forEach((btn) => btn.addEventListener("click", () => switchPage(btn.dataset.page)));
 
-/* -------------------------------------------------------------- 设置（行式简介，点标题展开） */
+/* ------------------------------------------- 设置（顶部子标签 + 行式带右侧按钮） */
+// 子标签切换：一次只显示一个 pane（大模型 / 搜索 / 关于 / 更新）
+$$(".setting-tab").forEach((btn) =>
+  btn.addEventListener("click", () => {
+    const tab = btn.dataset.tab;
+    $$(".setting-tab").forEach((b) => b.classList.toggle("active", b === btn));
+    $$(".setting-pane").forEach((p) => p.classList.toggle("active", p.id === "spane-" + tab));
+  }));
+
+// 行式设置：点行（或右侧「设置」按钮）展开/收起其配置面板；no-toggle 行常开
 $$(".setting-head").forEach((head) =>
   head.addEventListener("click", () => {
     const row = head.closest(".setting-row");
-    if (!row) return;
+    if (!row || row.classList.contains("no-toggle")) return;
     const open = row.classList.toggle("open");
     const body = row.querySelector(".setting-body");
     if (body) body.hidden = !open;
@@ -986,13 +995,36 @@ async function createCustomPlaylist() {
 $("#cp-create").addEventListener("click", createCustomPlaylist);
 
 /* -------------------------------------------------------------- 关于 / 更新 */
+let aboutArch = "x86";
+
+// 安装包下载列表：高亮当前机型对应的包，直连 + 加速代理两条线路
+function renderPackages(packages) {
+  const box = $("#about-packages");
+  if (!box) return;
+  box.innerHTML = (packages || []).map((p) => {
+    const rec = p.arch === aboutArch;
+    const mirror = (p.mirrors || [])[0] || "";
+    return `<div class="pkg-item${rec ? " rec" : ""}">
+      <div class="pkg-main">
+        <div class="pkg-name">${escapeHtml(p.label || p.arch)}${rec ? ' <span class="pkg-badge">当前机型</span>' : ""}</div>
+        <div class="pkg-meta">${escapeHtml(p.filename || "")}</div>
+      </div>
+      <a class="btn setting-action" href="${escapeHtml(p.direct || "#")}" download rel="noopener noreferrer">下载</a>
+      ${mirror ? `<a class="btn ghost setting-action" href="${escapeHtml(mirror)}" download rel="noopener noreferrer">加速下载</a>` : ""}
+    </div>`;
+  }).join("") || '<p class="hint">暂无安装包信息。</p>';
+}
+
 async function loadAbout() {
   try {
     const data = await api("/api/about");
+    aboutArch = data.arch || "x86";
     $("#about-version").textContent = "v" + (data.version || "-");
     const repo = $("#about-repo");
     repo.href = data.repo_url || "#";
-    repo.textContent = (data.repo_url || "").replace(/^https?:\/\//, "");
+    const archTag = $("#about-arch");
+    if (archTag) archTag.textContent = aboutArch === "arm64" ? "ARM64" : "x86";
+    renderPackages(data.packages);
   } catch (exc) {
     $("#about-version").textContent = "读取失败：" + exc.message;
   }
@@ -1020,7 +1052,7 @@ async function checkUpdate() {
         `<div class="kv"><b>发现新版本</b>v${escapeHtml(latest.version)}${latest.date ? "（" + escapeHtml(latest.date) + "）" : ""}</div>` +
         `<div class="kv"><b>当前版本</b>v${escapeHtml(data.current)}</div>` +
         `<div class="kv"><b>更新内容</b>${escapeHtml(latest.notes || "见仓库更新说明").replace(/\n/g, "<br>")}</div>`;
-      $("#about-check-note").textContent = "可前往仓库 Releases 下载新版";
+      $("#about-check-note").textContent = "请在下方「安装包下载」选择对应机型下载，再到应用中心手动安装";
     } else {
       box.className = "report ok";
       box.textContent = `已是最新版本（v${data.current}）`;

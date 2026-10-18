@@ -563,6 +563,47 @@ def _env_watch_path() -> str:
     )
 
 
+def _env_mirror_path() -> str:
+    """本地配置镜像文件路径（仓库目录之外，重装/升级都不会被清掉）。
+
+    代理常驻宿主机，是唯一能看到每次 .env 变更的进程（装完 shell 写一次、
+    之后管理台 WebUI 写入也一样），因此由它持续把 .env 复制到镜像；
+    install.sh 在 .env 缺失（重装）时从这里回填，避免掉配置。
+    """
+    override = (os.environ.get("FNMUSIC_ENV_MIRROR") or "").strip()
+    if override:
+        return override
+    root = (os.environ.get("FNMUSIC_MIRROR_DIR") or "").strip() or "/var/lib/fnmusic-ext"
+    return os.path.join(root, "env.mirror")
+
+
+def _write_env_mirror(src: "str | None" = None) -> bool:
+    """把当前 .env 原子复制为镜像（尽力而为，失败只告警，绝不影响代理）。"""
+    path = _env_mirror_path()
+    if not path:
+        return False
+    try:
+        with open(src or _env_watch_path(), "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return False
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:  # 只读/无权限等：记一次告警即可，镜像非关键路径
+        logger.warning("写入配置镜像失败(%s): %s", path, exc)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
+
+
 def _env_watch_parse(raw: str, kind: str):
     raw = str(raw or "").strip()
     if kind == "bool":
@@ -694,6 +735,7 @@ def _cancel_daily_tasks() -> None:
 async def _env_watch_loop() -> None:
     last = _env_watch_stat()
     last_custom = _custom_watch_stat()
+    _write_env_mirror()  # 代理启动即刷新一次本地配置镜像（重装时可回填）
     while True:
         try:
             await asyncio.sleep(_ENV_WATCH_INTERVAL_S)
@@ -703,6 +745,7 @@ async def _env_watch_loop() -> None:
                 settled = _env_watch_stat()
                 if settled == cur:
                     last = settled
+                    _write_env_mirror()  # .env 有变（安装脚本或管理台写入）就同步镜像
                     changed = apply_env_hot_reload()
                     if changed:
                         _reset_search_cache()
@@ -4058,6 +4101,7 @@ async def _open_online_stream(request: Request, guid: str, range_header: str | N
 _FULL_FETCH_COOLDOWN_S = 1800.0
 _full_fetch_tasks: "dict[str, asyncio.Task]" = {}
 _full_fetch_failed: "dict[str, float]" = {}
+_auto_cache_tasks: "set[asyncio.Task]" = set()
 
 # --- 损坏流防护（2026-09-29 实测）-----------------------------------------
 # kuwo 官方 CDN 的无损档交付不可解码字节（fLaC 头与 Content-Length 都正常，
@@ -4199,15 +4243,37 @@ def _next_playlist_guid(guid: str) -> str | None:
 def _register_auto_cache(request: Request, guid: str, tee_handles: bool) -> None:
     """自动缓存（FNMUSIC_AUTO_CACHE_FIRST / _NEXT）：把在线曲整轨下载落库。
 
+    登记整体挪进后台任务，绝不占用播放响应路径：判断下一首要同步遍历各歌单
+    JSON（recommend / 网易账号 / 官方歌单附加条目），抽大歌单时这段耗时会让
+    首字节迟迟不发，客户端取流被判失败即自动切歌，表现为每首只播一瞬间就跳。
+    """
+    if not (CONF.get("auto_cache_first") or CONF.get("auto_cache_next")):
+        return
+    headers = copy_incoming_headers(request)
+    task = asyncio.create_task(_auto_cache_worker(headers, guid, tee_handles))
+    _auto_cache_tasks.add(task)
+    task.add_done_callback(_auto_cache_tasks.discard)
+
+
+async def _auto_cache_worker(cred_headers: dict, guid: str, tee_handles: bool) -> None:
+    """后台执行自动缓存登记：当前曲整轨落库 + 歌单下一首预取。
+
     与边听边存互补：tee_handles（本次请求会由 tee 落库）时当前曲不重复下载，
     只预取下一首；定长窗口客户端的 tee 永不触发，由 auto_cache_first 兜底。
+    下一首判定放线程池执行，避免同步文件 IO 阻塞事件循环。
     """
-    if CONF.get("auto_cache_first") and not tee_handles:
-        _register_background_fetch(request, guid, "auto_cache_first")
-    if CONF.get("auto_cache_next"):
-        nxt = _next_playlist_guid(guid)
-        if nxt and nxt != guid:
-            _register_background_fetch(request, nxt, "auto_cache_next")
+    try:
+        fake = _synth_request(cred_headers)
+        if CONF.get("auto_cache_first") and not tee_handles:
+            _register_background_fetch(fake, guid, "auto_cache_first")
+        if CONF.get("auto_cache_next"):
+            nxt = await asyncio.to_thread(_next_playlist_guid, guid)
+            if nxt and nxt != guid:
+                _register_background_fetch(fake, nxt, "auto_cache_next")
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.warning("auto cache registration failed for %s: %s", guid, type(e).__name__)
 
 
 def _register_fav_autobind(request: Request, guid: str, user_guid: str = "",

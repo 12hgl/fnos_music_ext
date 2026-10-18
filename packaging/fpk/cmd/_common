@@ -121,6 +121,12 @@ fnmusic_saved_lx_url() {
     sed -n 's/^LX_SOURCE_URL=//p' "${FNMUSIC_REPO_DIR}/.env" | tail -n1
 }
 
+fnmusic_env_mirror() {
+    # Local config mirror (a copy of .env) living outside the repo dir so it
+    # survives uninstall/reinstall; install.sh relies on it to restore .env.
+    echo "${FNMUSIC_ENV_MIRROR:-${FNMUSIC_MIRROR_DIR:-/var/lib/fnmusic-ext}/env.mirror}"
+}
+
 fnmusic_data_items() {
     # User data living inside the repo dir (relative paths, existing ones only).
     # 在仓库目录内展开通配：调用方 cwd 若也有 .env.bak*，tar -C repo ${ITEMS}

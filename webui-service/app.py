@@ -12,6 +12,7 @@ import asyncio
 import io
 import logging
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -88,6 +89,30 @@ def _update_url_candidates() -> list[str]:
     for prefix in UPDATE_PROXIES:
         urls.append(f"{prefix.rstrip('/')}/{UPDATE_URL}")
     return urls
+
+
+# 「更新」页安装包下载：仓库 latest/ 目录存放固定文件名的 fpk（无版本号），
+# 每次发版由 CI 覆盖写入，下载链接恒定不变；直连 raw.githubusercontent 在国内
+# 常不可达，同样按 UPDATE_PROXIES 给出加速代理备用地址。
+PKG_BASE = os.environ.get(
+    "WEBUI_PKG_BASE",
+    "https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest",
+)
+ARCH_LABELS = {"x86": "x86（Intel / AMD）", "arm64": "ARM64（飞牛 ARM 机型）"}
+
+
+def _host_arch() -> str:
+    """当前主机架构，用于在更新页高亮匹配的安装包。"""
+    machine = (platform.machine() or "").lower()
+    return "arm64" if machine in ("aarch64", "arm64") else "x86"
+
+
+def _package_info(arch: str) -> dict:
+    filename = "fnmusic-ext-arm64.fpk" if arch == "arm64" else "fnmusic-ext.fpk"
+    direct = f"{PKG_BASE.rstrip('/')}/{filename}"
+    mirrors = [f"{prefix.rstrip('/')}/{direct}" for prefix in UPDATE_PROXIES]
+    return {"arch": arch, "label": ARCH_LABELS[arch], "filename": filename,
+            "direct": direct, "mirrors": mirrors}
 
 # 支持导入的自定义歌单文件格式（与 proxy/recommend.py SUPPORTED_PLAYLIST_EXTS 一致）
 PLAYLIST_EXTS = ("m3u", "m3u8", "pls", "cue")
@@ -893,12 +918,15 @@ def _version_key(text: str) -> tuple[int, ...]:
 
 @app.get("/api/about")
 async def api_about():
+    arch = _host_arch()
     return {
         "ok": True,
         "version": _read_version(),
         "repo_url": REPO_URL,
         "update_url": UPDATE_URL,
         "update_proxies": UPDATE_PROXIES,
+        "arch": arch,
+        "packages": [_package_info("x86"), _package_info("arm64")],
     }
 
 

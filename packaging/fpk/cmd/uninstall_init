@@ -29,7 +29,12 @@ fi
 # 兼容旧的向导开关（历史版本安装时可能记录）：显式 false 才跳过备份
 KEEP="${wizard_keep_data:-true}"
 case "${KEEP}" in
-    false|False|FALSE|0|no) exit 0 ;;
+    false|False|FALSE|0|no)
+        # 用户明确不保留数据：连同仓库外的本地配置镜像一起清除，
+        # 避免下次重装又“恢复”出已要求丢弃的配置。
+        rm -f "$(fnmusic_env_mirror)" >> "${FNMUSIC_LOG}" 2>&1 || true
+        exit 0
+        ;;
 esac
 
 if [ -z "${FNMUSIC_REPO_DIR}" ]; then

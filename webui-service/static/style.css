@@ -113,21 +113,65 @@ h2 { margin: 4px 0 14px; font-size: 20px; letter-spacing: .2px; }
 .pl-detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .pl-detail-title { font-weight: 600; font-size: 15px; }
 
-/* -------------------------------------------------- 设置（行式简介） */
-.setting-list { display: flex; flex-direction: column; gap: 10px; }
+/* -------------------------------------------------- 设置（顶部子标签 + 行式带右侧按钮） */
+.setting-tabs {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  border-bottom: 1px solid var(--glass-border); margin: 2px 0 16px;
+}
+.setting-tab {
+  border: 0; background: transparent; color: var(--muted);
+  padding: 10px 14px; font-size: 15px; cursor: pointer; font-family: inherit;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.setting-tab:hover { color: var(--text); }
+.setting-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.setting-pane { display: none; }
+.setting-pane.active { display: block; }
+
 .setting-row {
   background: var(--glass-soft);
   border: 1px solid var(--glass-border); border-radius: 12px; overflow: hidden;
+  margin-bottom: 10px;
 }
 .setting-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 14px; cursor: pointer;
 }
+.setting-row.no-toggle .setting-head { cursor: default; }
+.setting-lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.setting-lead > div { min-width: 0; }
+.setting-icon {
+  width: 40px; height: 40px; flex: none; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent);
+}
+.setting-icon svg { width: 21px; height: 21px; }
 .setting-name { font-weight: 600; }
 .setting-desc { font-size: 13px; color: var(--muted); margin-top: 3px; }
-.setting-caret { color: var(--muted); flex: none; transition: transform .18s ease; }
-.setting-row.open .setting-caret { transform: rotate(180deg); }
+.setting-action { flex: none; }
+a.setting-action { display: inline-block; text-decoration: none; }
+a.setting-action:hover { text-decoration: none; }
+.setting-value { flex: none; font-size: 14px; color: var(--muted); }
 .setting-body { padding: 4px 14px 14px; border-top: 1px solid var(--glass-border); }
+
+.pkg-list { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
+.pkg-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--glass-soft); border: 1px solid var(--glass-border);
+  border-radius: 10px; padding: 10px 12px;
+}
+.pkg-item.rec {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(47, 111, 237, 0.12), rgba(47, 111, 237, 0.03));
+}
+.pkg-item .pkg-main { flex: 1; min-width: 0; }
+.pkg-item .pkg-name { font-weight: 600; }
+.pkg-item .pkg-meta { font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.pkg-badge {
+  font-size: 12px; font-weight: 500; border-radius: 6px; padding: 1px 7px;
+  background: var(--accent-soft); color: var(--accent); vertical-align: middle;
+}
 
 .subblock { border-top: 1px dashed var(--line); margin-top: 14px; padding-top: 12px; }
 a { color: var(--accent); text-decoration: none; }

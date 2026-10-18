@@ -1,0 +1,53 @@
+{
+  "schema_version": "2",
+  "source_info": {
+    "name": "fnMusic 扩展源",
+    "author": "12hgl",
+    "homepage": "https://github.com/12hgl/fnos_music_ext",
+    "description": "飞牛音乐（trim.music）无侵入增强扩展外部应用源。"
+  },
+  "apps": {
+    "fnmusic-ext": {
+      "display_name": "fnMusic 音源扩展",
+      "desc": "fnmusic-ext 是专为飞牛私有云（fnOS）自带音乐应用打造的无侵入增强扩展：零侵入接管官方音乐入口，提供 musicdl 聚合、网易云（盒子/免扫码）、洛雪自定义源在线搜索播放，支持分类歌单、38 个热门榜单、自定义歌单（导入 m3u/m3u8/pls/cue 或大模型点歌）与内置大模型推荐，内置管理页（音源切换/扫码登录/平台选择/边听边存/检测更新），可随时一条命令还原官方直连。",
+      "platform": [
+        "x86",
+        "arm"
+      ],
+      "categories": [
+        "影音娱乐"
+      ],
+      "icon_url": "./packaging/fpk/ICON_256.PNG",
+      "preview_urls": [
+        "./preview_image/preview.png"
+      ],
+      "readme_url": "./README.md",
+      "bug_report_url": "https://github.com/12hgl/fnos_music_ext/issues",
+      "maintainer": "12hgl",
+      "maintainer_url": "https://github.com/12hgl/fnos_music_ext",
+      "run_as": "root",
+      "install_type": "",
+      "is_docker": false,
+      "service_port": "",
+      "releases": {
+        "3.1.2": {
+          "changelog": "1. 修复开启「自动缓存第一首 / 自动缓存下一首」后每首加载 0.1s 就自动跳歌、直到播完歌单的问题（登记改到后台执行，不再阻塞取流）\n2. 新增本地配置镜像：重装 / 升级后自动回填 .env，不再丢配置\n3. 设置页改为「顶部子标签 + 行式带右侧按钮」布局：大模型 / 搜索 / 关于 / 更新 四个子标签\n4. 「更新」子标签新增安装包下载：按当前机型（x86 / ARM64）提供 fpk 下载与加速镜像\n5. 新增 FnDepot 外部应用源 fnpack.json：可将本仓库作为外部源添加，自动按机型选择安装包\n6. 重新打包 x86 与 arm64 安装包",
+          "updated_at": "2026-10-18T12:57:12+08:00",
+          "os_min_version": "1.2.0",
+          "packages": {
+            "x86": {
+              "download_url": "./latest/fnmusic-ext.fpk",
+              "sha256": "75652eedc71ba3c42e328400420b607f265a13dbe7ce0ada8f6d07a5c3f90d49",
+              "size": 979685
+            },
+            "arm": {
+              "download_url": "./latest/fnmusic-ext-arm64.fpk",
+              "sha256": "1873500627fb1e62c8b881b6f61fcf087e90f688d7cfd6bf845550b0d78cb199",
+              "size": 979701
+            }
+          }
+        }
+      }
+    }
+  }
+}

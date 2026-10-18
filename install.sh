@@ -85,6 +85,19 @@ log_info() { echo -e "\033[32m[INFO]\033[0m $*"; }
 log_warn() { echo -e "\033[33m[WARN]\033[0m $*"; }
 log_err() { echo -e "\033[31m[ERROR]\033[0m $*" >&2; }
 
+# --- 本地配置镜像：重装恢复 ---
+# 代理常驻宿主机，每次 .env 变更（安装脚本 / 管理台 WebUI）都会把它复制到仓库目录
+# 之外的镜像文件；重装（卸载再装）后 .env 已随应用目录被清掉，这里从镜像回填，
+# 避免掉配置。镜像位于仓库外，卸载不删除（向导明确“不保留数据”时由卸载钩子清除）。
+ENV_MIRROR="${FNMUSIC_ENV_MIRROR:-${FNMUSIC_MIRROR_DIR:-/var/lib/fnmusic-ext}/env.mirror}"
+MIRROR_RESTORED=0
+if [ ! -f "${BASE_DIR}/.env" ] && [ -f "${ENV_MIRROR}" ]; then
+    if install -m 600 "${ENV_MIRROR}" "${BASE_DIR}/.env" 2>/dev/null; then
+        MIRROR_RESTORED=1
+        log_warn "检测到 .env 丢失，已从本地配置镜像恢复：${ENV_MIRROR}"
+    fi
+fi
+
 usage() {
     cat <<'EOF'
 用法: ./install.sh [选项]
@@ -1148,6 +1161,14 @@ elif [ "${LLM_CLEAR}" -eq 1 ]; then
 fi
 # 未开启也未显式关闭：不加入 ENV_EXPLICIT，env_merge 保留旧 Key
 
+# 从本地镜像恢复时（.env 原本缺失），部署相关目录键按当前安装目录重算：
+# 镜像可能来自另一个卷/旧目录，沿用旧路径会指向已不存在的目录。
+# 只覆盖非用户可配置的路径键；FNMUSIC_CACHE_DIR / FNMUSIC_TEE_SAVE_DIR 等
+# 用户在管理台自定义过的键不在其列，照旧保留。
+if [ "${MIRROR_RESTORED}" -eq 1 ]; then
+    ENV_EXPLICIT="${ENV_EXPLICIT},FNMUSIC_HOME,FNMUSIC_FAV_DIR,FNMUSIC_PLT_DIR,FNMUSIC_PLAY_HISTORY_DIR,FNMUSIC_RECOMMEND_DIR"
+fi
+
 if [ -f "${ENV_PATH}" ]; then
     PREV_VERSION="$(grep -E "^\s*(export\s+)?FNMUSIC_VERSION=" "${ENV_PATH}" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'[:space:]" || true)"
     PREV_VERSION="${PREV_VERSION:-}"
@@ -1668,6 +1689,16 @@ else
 fi
 if [ "${ENABLE_LX}" -eq 1 ] && [ -n "${LX_SOURCE_URL_CLI}" ]; then
     lx_verify_and_activate "${LX_SOURCE_URL_CLI}"
+fi
+
+# 刷新本地配置镜像（重装时 install.sh 从这里回填 .env，见文件开头）
+# 放在所有 .env 写入（含洛雪源激活推导）之后，保证镜像是最新完整配置。
+ENV_MIRROR_DIR="$(dirname "${ENV_MIRROR}")"
+mkdir -p "${ENV_MIRROR_DIR}" 2>/dev/null || true
+cp -p "${ENV_PATH}" "${ENV_MIRROR}" 2>/dev/null || install -m 600 "${ENV_PATH}" "${ENV_MIRROR}" 2>/dev/null || true
+if [ -f "${ENV_MIRROR}" ]; then
+    chmod 600 "${ENV_MIRROR}" 2>/dev/null || true
+    log_info "已更新本地配置镜像（重装可恢复）：${ENV_MIRROR}"
 fi
 
 takeover preflight --base "${BASE_DIR}"

@@ -5,6 +5,8 @@ name: 更新 latest 安装包
 #      https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext.fpk
 #      https://raw.githubusercontent.com/12hgl/fnos_music_ext/main/latest/fnmusic-ext-arm64.fpk
 #   2) 将版本化安装包附加到该 Release 的 Assets（fnmusic-ext-<版本>.fpk / -arm64.fpk）。
+#   3) 依据 latest/ 重新生成根目录 fnpack.json（FnDepot 外部源 V2），保证
+#      外部源里的版本号 / 下载地址 / 大小 / sha256 与 latest/ 始终一致。
 # 参考 v3.1.0 的历史发布形态（不带 .sha256 校验文件）。
 on:
   release:
@@ -46,6 +48,9 @@ jobs:
           cp -f "dist/fnmusic-ext-${VERSION}-arm64.fpk" latest/fnmusic-ext-arm64.fpk
           ls -l latest
 
+      - name: 重新生成外部应用源 fnpack.json
+        run: python3 packaging/fpk/gen_fnpack_json.py
+
       - name: 附加版本化安装包到 Release Assets
         if: github.event_name == 'release'
         env:
@@ -66,9 +71,9 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f latest/fnmusic-ext.fpk latest/fnmusic-ext-arm64.fpk
+          git add -f latest/fnmusic-ext.fpk latest/fnmusic-ext-arm64.fpk fnpack.json
           if git diff --cached --quiet; then
-            echo "latest 安装包无变化，跳过提交"
+            echo "latest 安装包与 fnpack.json 无变化，跳过提交"
             exit 0
           fi
           git commit -m "更新最新安装包"

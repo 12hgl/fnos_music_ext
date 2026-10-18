@@ -315,15 +315,31 @@
       <!-- 设置 -->
       <section class="page" id="page-settings">
         <h2>设置</h2>
-        <p class="hint">全局项一览，点标题展开对应设置。</p>
-        <div class="setting-list">
+        <div class="setting-tabs" id="setting-tabs">
+          <button class="setting-tab active" data-tab="llm" type="button">大模型</button>
+          <button class="setting-tab" data-tab="search" type="button">搜索</button>
+          <button class="setting-tab" data-tab="about" type="button">关于</button>
+          <button class="setting-tab" data-tab="update" type="button">更新</button>
+        </div>
+
+        <!-- 大模型 -->
+        <div class="setting-pane active" id="spane-llm">
           <div class="setting-row" data-section="llm">
             <div class="setting-head">
-              <div>
-                <div class="setting-name">大模型</div>
-                <div class="setting-desc">用于每日推荐智能兜底与「大模型点歌」；默认内置 Kilo AI Gateway（免配置，免费模型可匿名调用）。</div>
+              <div class="setting-lead">
+                <span class="setting-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+                    <rect x="9" y="9" width="6" height="6" rx="1.5"></rect>
+                    <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"></path>
+                  </svg>
+                </span>
+                <div>
+                  <div class="setting-name">大模型接入</div>
+                  <div class="setting-desc">用于每日推荐智能兜底与「大模型点歌」；默认内置 Kilo AI Gateway（免配置，免费模型可匿名调用）。</div>
+                </div>
               </div>
-              <span class="setting-caret">▾</span>
+              <button class="btn setting-action" type="button">设置</button>
             </div>
             <div class="setting-body" hidden>
               <p class="hint">默认内置 <strong>Kilo AI Gateway</strong>（https://app.kilo.ai/，OpenAI 兼容），其免费模型支持匿名调用，<strong>免配置即可用</strong>；也可切换为自定义 OpenAI 兼容接口。保存后代理热重载生效。</p>
@@ -342,14 +358,25 @@
               </div>
             </div>
           </div>
+        </div>
 
+        <!-- 搜索 -->
+        <div class="setting-pane" id="spane-search">
           <div class="setting-row" data-section="search">
             <div class="setting-head">
-              <div>
-                <div class="setting-name">搜索</div>
-                <div class="setting-desc">在线搜索的探活与超时；逐曲探活会更慢但更准。</div>
+              <div class="setting-lead">
+                <span class="setting-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="m20 20-3.6-3.6"></path>
+                  </svg>
+                </span>
+                <div>
+                  <div class="setting-name">在线搜索</div>
+                  <div class="setting-desc">在线搜索的探活与超时；逐曲探活会更慢但更准。</div>
+                </div>
               </div>
-              <span class="setting-caret">▾</span>
+              <button class="btn setting-action" type="button">设置</button>
             </div>
             <div class="setting-body" hidden>
               <label class="switch-row"><span>逐曲探活(beta)<div class="sub">搜索时预先对候选歌曲进行直链解析与网络探活，确保“搜得到必能播”；但由于第三方音源解析较慢，开启后容易造成搜索超时甚至无法搜出结果，建议保持关闭。</div></span><input type="checkbox" id="search-probe"></label>
@@ -359,24 +386,89 @@
               <p class="hint">单位为秒，默认 15。在线结果一返回就交给播放，本地歌曲在前；到时还没有就放弃这次在线结果，只返回本地歌曲。保存后立即生效。</p>
             </div>
           </div>
+        </div>
 
-          <div class="setting-row" data-section="about">
+        <!-- 关于 -->
+        <div class="setting-pane" id="spane-about">
+          <div class="setting-row no-toggle">
             <div class="setting-head">
-              <div>
-                <div class="setting-name">关于</div>
-                <div class="setting-desc">版本信息、开源仓库与在线更新检测。</div>
+              <div class="setting-lead">
+                <span class="setting-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 11v5M12 8h.01"></path>
+                  </svg>
+                </span>
+                <div>
+                  <div class="setting-name">版本信息</div>
+                  <div class="setting-desc">当前运行版本。</div>
+                </div>
               </div>
-              <span class="setting-caret">▾</span>
+              <span class="setting-value" id="about-version">加载中…</span>
             </div>
-            <div class="setting-body" hidden>
-              <div class="kv"><b>当前版本</b><span id="about-version">加载中…</span></div>
-              <div class="kv"><b>开源仓库</b><a id="about-repo" href="#" target="_blank" rel="noopener noreferrer">-</a></div>
-              <p class="hint">感兴趣点个 star 吧！</p>
-              <div class="btn-row">
-                <button class="btn primary" id="about-check">检测更新</button>
-                <span id="about-check-note" class="muted"></span>
+          </div>
+          <div class="setting-row no-toggle">
+            <div class="setting-head">
+              <div class="setting-lead">
+                <span class="setting-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 19c-4 1.5-4-2-6-2m12 4v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6 0C6.8 2.7 5.8 3 5.8 3a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 4.4 9.4c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"></path>
+                  </svg>
+                </span>
+                <div>
+                  <div class="setting-name">开源仓库</div>
+                  <div class="setting-desc">感兴趣点个 star 吧！</div>
+                </div>
               </div>
+              <a class="btn setting-action" id="about-repo" href="#" target="_blank" rel="noopener noreferrer">打开</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 更新 -->
+        <div class="setting-pane" id="spane-update">
+          <div class="setting-row no-toggle">
+            <div class="setting-head">
+              <div class="setting-lead">
+                <span class="setting-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12a9 9 0 1 1-2.6-6.3"></path>
+                    <path d="M21 3v5h-5"></path>
+                  </svg>
+                </span>
+                <div>
+                  <div class="setting-name">检测更新</div>
+                  <div class="setting-desc">在线获取最新版本号与更新说明（直连不可达自动走加速代理）。</div>
+                </div>
+              </div>
+              <button class="btn primary setting-action" id="about-check" type="button">检测更新</button>
+            </div>
+            <div class="setting-body">
               <div id="about-update" class="report" hidden></div>
+              <span id="about-check-note" class="muted"></span>
+            </div>
+          </div>
+
+          <div class="setting-row no-toggle">
+            <div class="setting-head">
+              <div class="setting-lead">
+                <span class="setting-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3v12"></path>
+                    <path d="m7 10 5 5 5-5"></path>
+                    <path d="M5 21h14"></path>
+                  </svg>
+                </span>
+                <div>
+                  <div class="setting-name">安装包下载</div>
+                  <div class="setting-desc">下载与当前机型匹配的 fpk 安装包，在「应用中心 → 手动安装」选择该文件即可升级。</div>
+                </div>
+              </div>
+              <span class="setting-value" id="about-arch">—</span>
+            </div>
+            <div class="setting-body">
+              <div class="pkg-list" id="about-packages"></div>
+              <p class="hint">安装包文件名固定、下载链接恒定，随每次发版自动更新；下载后请到飞牛「应用中心」右上角「+ → 手动安装」选择 .fpk 文件完成升级。飞牛应用中心不支持命令行升级，故此处仅提供安装包下载。</p>
             </div>
           </div>
         </div>
