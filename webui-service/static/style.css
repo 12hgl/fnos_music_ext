@@ -155,23 +155,11 @@ a.setting-action:hover { text-decoration: none; }
 .setting-value { flex: none; font-size: 14px; color: var(--muted); }
 .setting-body { padding: 4px 14px 14px; border-top: 1px solid var(--glass-border); }
 
-.pkg-list { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
-.pkg-item {
-  display: flex; align-items: center; gap: 10px;
+.progress {
+  height: 8px; border-radius: 6px; overflow: hidden; margin: 10px 0 6px;
   background: var(--glass-soft); border: 1px solid var(--glass-border);
-  border-radius: 10px; padding: 10px 12px;
 }
-.pkg-item.rec {
-  border-color: var(--accent);
-  background: linear-gradient(135deg, rgba(47, 111, 237, 0.12), rgba(47, 111, 237, 0.03));
-}
-.pkg-item .pkg-main { flex: 1; min-width: 0; }
-.pkg-item .pkg-name { font-weight: 600; }
-.pkg-item .pkg-meta { font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
-.pkg-badge {
-  font-size: 12px; font-weight: 500; border-radius: 6px; padding: 1px 7px;
-  background: var(--accent-soft); color: var(--accent); vertical-align: middle;
-}
+.progress-bar { height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
 
 .subblock { border-top: 1px dashed var(--line); margin-top: 14px; padding-top: 12px; }
 a { color: var(--accent); text-decoration: none; }

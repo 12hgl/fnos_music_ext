@@ -435,38 +435,21 @@
                   </svg>
                 </span>
                 <div>
-                  <div class="setting-name">立即更新</div>
-                  <div class="setting-desc">按当前机型自动下载对应安装包并安装（直连不可达自动走代理加速）。</div>
+                  <div class="setting-name">检测更新</div>
+                  <div class="setting-desc">联网获取最新版本；确认有新版本后即可一键下载并安装（直连不可达自动走代理加速）。</div>
                 </div>
               </div>
-              <button class="btn primary setting-action" id="about-check" type="button">立即更新</button>
+              <button class="btn primary setting-action" id="about-check" type="button">检测更新</button>
             </div>
             <div class="setting-body">
               <div id="about-update" class="report" hidden></div>
-              <span id="about-check-note" class="muted"></span>
-            </div>
-          </div>
-
-          <div class="setting-row no-toggle">
-            <div class="setting-head">
-              <div class="setting-lead">
-                <span class="setting-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 3v12"></path>
-                    <path d="m7 10 5 5 5-5"></path>
-                    <path d="M5 21h14"></path>
-                  </svg>
-                </span>
-                <div>
-                  <div class="setting-name">安装包下载</div>
-                  <div class="setting-desc">下载与当前机型匹配的 fpk 安装包，在「应用中心 → 手动安装」选择该文件即可升级。</div>
-                </div>
+              <div id="about-progress-wrap" hidden>
+                <div class="progress"><div class="progress-bar" id="about-progress-bar"></div></div>
+                <p class="hint" id="about-progress-note"></p>
               </div>
-              <span class="setting-value" id="about-arch">—</span>
-            </div>
-            <div class="setting-body">
-              <div class="pkg-list" id="about-packages"></div>
-              <p class="hint">安装包文件名固定、下载链接恒定，随每次发版自动更新；下载后请到飞牛「应用中心」右上角「+ → 手动安装」选择 .fpk 文件完成升级。飞牛应用中心不支持命令行升级，故此处仅提供安装包下载。</p>
+              <div class="btn-row" id="about-download-row" hidden>
+                <button class="btn primary" id="about-download" type="button">下载并更新</button>
+              </div>
             </div>
           </div>
         </div>

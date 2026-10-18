@@ -115,7 +115,7 @@ def _package_info(arch: str) -> dict:
             "direct": direct, "mirrors": mirrors}
 
 
-# 「立即更新」下载目录：仓库内 sources-data/.update（容器内 /repo/sources-data 即数据卷 /data）。
+# 「下载并更新」下载目录：仓库内 sources-data/.update（容器内 /repo/sources-data 即数据卷 /data）。
 # sources-data 在打 fpk 时被排除；宿主路径稳定，便于应用中心按存储卷路径安装。
 def _package_dir() -> Path:
     return Path(CONF["repo_dir"]) / "sources-data" / ".update"
@@ -965,15 +965,13 @@ def _version_key(text: str) -> tuple[int, ...]:
 
 @app.get("/api/about")
 async def api_about():
-    arch = _host_arch()
     return {
         "ok": True,
         "version": _read_version(),
         "repo_url": REPO_URL,
         "update_url": UPDATE_URL,
         "update_proxies": UPDATE_PROXIES,
-        "arch": arch,
-        "packages": [_package_info("x86"), _package_info("arm64")],
+        "arch": _host_arch(),
     }
 
 
@@ -1009,50 +1007,91 @@ async def api_about_update(request: Request):
     }
 
 
-@app.post("/api/about/update-now")
-async def api_about_update_now(request: Request):
-    """「立即更新」：按当前机型下载对应 fpk 到 NAS 数据目录，返回可供应用中心安装的路径。
+# 「下载并更新」任务表：后端按机型把 fpk 下到 NAS，前端轮询进度，完成后触发应用中心安装。
+_UPDATE_TASKS: dict[str, dict] = {}
 
-    前端拿到路径后会在飞牛桌面内同源调用应用中心接口尝试自动安装；接口与系统版本
-    不匹配时回退到「应用中心 → 手动安装」。下载走直连 + 加速代理多线路（见 PKG_BASE）。
-    """
-    arch = _host_arch()
-    pkg = _package_info(arch)
-    dest_dir = _package_dir()
-    try:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        return {"ok": False, "arch": arch, "error": f"无法创建下载目录：{exc}"}
-    dest = dest_dir / pkg["filename"]
 
+async def _latest_version(request: Request) -> str:
+    for url in _update_url_candidates():
+        ok, payload = await _fetch_json(request, url, timeout=6.0)
+        if ok and isinstance(payload, dict) and payload.get("version"):
+            return str(payload["version"])
+    return ""
+
+
+async def _run_update_download(request: Request, task: dict, pkg: dict) -> None:
+    """后台下载匹配机型的 fpk（直连 + 加速代理多线路），实时回写任务进度。"""
+    dest = _package_dir() / pkg["filename"]
+    tmp = dest.with_name(dest.name + ".part")
     client = get_http(request)
     last_err = ""
     for url in [pkg["direct"], *pkg["mirrors"]]:
+        done = 0
         try:
-            resp = await client.get(url, timeout=120.0, follow_redirects=True)
+            async with client.stream(
+                "GET", url, timeout=httpx.Timeout(300.0, connect=8.0), follow_redirects=True
+            ) as resp:
+                if resp.status_code >= 400:
+                    last_err = f"{url}：HTTP {resp.status_code}"
+                    continue
+                total = int(resp.headers.get("content-length") or 0)
+                task["total"] = total
+                with open(tmp, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(1 << 16):
+                        fh.write(chunk)
+                        done += len(chunk)
+                        task["downloaded"] = done
         except Exception as exc:  # noqa: BLE001
             last_err = f"{url}：{exc}"
             continue
-        if resp.status_code >= 400 or not resp.content:
-            last_err = f"{url}：HTTP {resp.status_code}"
+        if done == 0:
+            last_err = f"{url}：响应为空"
             continue
         try:
-            dest.write_bytes(resp.content)
+            os.replace(tmp, dest)
         except OSError as exc:
             last_err = f"写入失败：{exc}"
             continue
-        latest = ""
-        for update_url in _update_url_candidates():
-            ok, payload = await _fetch_json(request, update_url, timeout=6.0)
-            if ok and isinstance(payload, dict) and payload.get("version"):
-                latest = str(payload["version"])
-                break
-        return {
-            "ok": True, "arch": arch, "label": pkg["label"], "filename": pkg["filename"],
-            "version": latest or _read_version(), "size": len(resp.content),
-            "path": _nas_path(dest), "source": url,
-        }
-    return {"ok": False, "arch": arch, "error": last_err or "下载安装包失败，请检查网络后重试"}
+        task.update(status="done", downloaded=done, total=task["total"] or done,
+                    path=_nas_path(dest), version=task.get("version") or await _latest_version(request))
+        return
+    try:
+        tmp.unlink(missing_ok=True)
+    except OSError:
+        pass
+    task["status"] = "error"
+    task["error"] = last_err or "下载安装包失败，请检查网络后重试"
+
+
+@app.post("/api/about/update/start")
+async def api_about_update_start(request: Request):
+    """「下载并更新」：按当前机型在后台下载匹配的 fpk，返回任务号供前端轮询进度。"""
+    arch = _host_arch()
+    pkg = _package_info(arch)
+    try:
+        _package_dir().mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return {"ok": False, "arch": arch, "error": f"无法创建下载目录：{exc}"}
+    task_id = f"upd-{arch}-{int(time.time() * 1000)}"
+    _UPDATE_TASKS.clear()  # 并发无意义，只保留当前任务，避免累积
+    task = {
+        "id": task_id, "status": "downloading", "arch": arch, "label": pkg["label"],
+        "filename": pkg["filename"], "downloaded": 0, "total": 0,
+        "path": None, "error": "", "version": await _latest_version(request),
+    }
+    _UPDATE_TASKS[task_id] = task
+    asyncio.create_task(_run_update_download(request, task, pkg))
+    return {"ok": True, "task_id": task_id, "arch": arch, "label": pkg["label"],
+            "filename": pkg["filename"], "total": task["total"]}
+
+
+@app.get("/api/about/update/progress")
+async def api_about_update_progress(task_id: str = Query(...)):
+    """「下载并更新」进度轮询：返回已下载字节、总量与最终安装包路径。"""
+    task = _UPDATE_TASKS.get(task_id)
+    if task is None:
+        return {"ok": False, "error": "下载任务不存在或已结束"}
+    return {"ok": True, **task}
 
 
 # ------------------------------------------------------------------ 静态前端 --

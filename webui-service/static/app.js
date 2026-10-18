@@ -985,94 +985,216 @@ async function createCustomPlaylist() {
 $("#cp-create").addEventListener("click", createCustomPlaylist);
 
 /* -------------------------------------------------------------- 关于 / 更新 */
-let aboutArch = "x86";
-
-// 安装包下载列表：高亮当前机型对应的包，直连 + 加速代理两条线路
-function renderPackages(packages) {
-  const box = $("#about-packages");
-  if (!box) return;
-  box.innerHTML = (packages || []).map((p) => {
-    const rec = p.arch === aboutArch;
-    const mirror = (p.mirrors || [])[0] || "";
-    return `<div class="pkg-item${rec ? " rec" : ""}">
-      <div class="pkg-main">
-        <div class="pkg-name">${escapeHtml(p.label || p.arch)}${rec ? ' <span class="pkg-badge">当前机型</span>' : ""}</div>
-        <div class="pkg-meta">${escapeHtml(p.filename || "")}</div>
-      </div>
-      <a class="btn setting-action" href="${escapeHtml(p.direct || "#")}" download rel="noopener noreferrer">下载</a>
-      ${mirror ? `<a class="btn ghost setting-action" href="${escapeHtml(mirror)}" download rel="noopener noreferrer">加速下载</a>` : ""}
-    </div>`;
-  }).join("") || '<p class="hint">暂无安装包信息。</p>';
-}
 
 async function loadAbout() {
   try {
     const data = await api("/api/about");
-    aboutArch = data.arch || "x86";
     $("#about-version").textContent = "v" + (data.version || "-");
     const repo = $("#about-repo");
-    repo.href = data.repo_url || "#";
-    const archTag = $("#about-arch");
-    if (archTag) archTag.textContent = aboutArch === "arm64" ? "ARM64" : "x86";
-    renderPackages(data.packages);
+    if (repo) repo.href = data.repo_url || "#";
   } catch (exc) {
     $("#about-version").textContent = "读取失败：" + exc.message;
   }
 }
 
-// 「立即更新」：后端按当前机型下载对应 fpk 到 NAS 数据目录，前端再尝试让应用中心自动安装。
-async function updateNow() {
-  const box = $("#about-update");
+// 「检测更新」：联网取 update.json，仅在确有新版本时才亮出「下载并更新」。
+async function checkUpdate() {
   const btn = $("#about-check");
+  const box = $("#about-update");
+  btn.disabled = true;
+  btn.textContent = "检测中…";
+  $("#about-download-row").hidden = true;
+  $("#about-progress-wrap").hidden = true;
   box.hidden = false;
   box.className = "report";
-  box.textContent = "正在按当前机型下载安装包（直连不可达时自动走加速代理）…";
-  $("#about-check-note").textContent = "";
-  btn.disabled = true;
+  box.textContent = "正在获取最新版本信息…";
   try {
-    const data = await api("/api/about/update-now", { method: "POST" });
+    const data = await api("/api/about/update");
     if (!data.ok) {
       box.className = "report fail";
-      box.textContent = "更新失败：" + (data.error || "未知错误");
+      box.textContent = "检测失败：" + (data.error || "未知错误");
       return;
     }
-    box.className = "report ok";
-    box.innerHTML =
-      `<div class="kv"><b>已下载</b>${escapeHtml(data.label || data.arch)} · ${escapeHtml(data.filename)}（${fmtSize(data.size)}）</div>` +
-      `<div class="kv"><b>目标版本</b>v${escapeHtml(data.version || "-")}</div>`;
-    const result = await tryAutoInstall(data.path);
-    $("#about-check-note").textContent = result.note;
+    const latest = data.latest || {};
+    if (data.updateAvailable) {
+      box.className = "report ok";
+      box.innerHTML =
+        `<div class="kv"><b>当前版本</b>v${escapeHtml(data.current || "-")}</div>` +
+        `<div class="kv"><b>最新版本</b>v${escapeHtml(latest.version || "-")}</div>` +
+        (latest.date ? `<div class="kv"><b>发布时间</b>${escapeHtml(latest.date)}</div>` : "") +
+        (latest.notes
+          ? `<div class="kv"><b>更新内容</b></div><div>${escapeHtml(latest.notes).replace(/\n/g, "<br>")}</div>`
+          : "");
+      $("#about-download-row").hidden = false;
+    } else {
+      box.className = "report ok";
+      box.textContent = `已是最新版本（v${escapeHtml(data.current || "-")}）。`;
+    }
   } catch (exc) {
     box.className = "report fail";
-    box.textContent = "更新失败：" + exc.message;
+    box.textContent = "检测失败：" + exc.message;
   } finally {
     btn.disabled = false;
+    btn.textContent = "检测更新";
   }
 }
 
-// 让飞牛应用中心接管安装：桌面内页面与 /app-center 同源，携带登录态直接调其接口。
-// 该接口未在官方文档公开，字段取自 fnOS 命令行工具（packageSourceType=file + path）；
-// 若当前系统版本不匹配会失败，此时回退到「应用中心 → 手动安装」。
-async function tryAutoInstall(path) {
+// 「下载并更新」：后端按机型把 fpk 下到 NAS（前端轮询进度），完成后触发应用中心安装。
+async function downloadAndUpdate() {
+  const dl = $("#about-download");
+  const box = $("#about-update");
+  const wrap = $("#about-progress-wrap");
+  const bar = $("#about-progress-bar");
+  const note = $("#about-progress-note");
+  dl.disabled = true;
+  dl.textContent = "下载中…";
+  box.hidden = true;
+  wrap.hidden = false;
+  bar.style.width = "0%";
+  note.textContent = "正在下载安装包…";
+  try {
+    const start = await api("/api/about/update/start", { method: "POST" });
+    if (!start.ok) throw new Error(start.error || "下载启动失败");
+    let done = null;
+    for (;;) {
+      await sleep(600);
+      const p = await api("/api/about/update/progress?task_id=" + encodeURIComponent(start.task_id));
+      if (!p.ok) throw new Error(p.error || "下载失败");
+      if (p.status === "done") { done = p; break; }
+      if (p.status === "error") throw new Error(p.error || "下载失败");
+      const pct = p.total ? Math.min(99, Math.floor((p.downloaded / p.total) * 100)) : 0;
+      bar.style.width = pct + "%";
+      note.textContent = p.total
+        ? `下载中 ${pct}%（${fmtSize(p.downloaded)} / ${fmtSize(p.total)}）`
+        : `已下载 ${fmtSize(p.downloaded)}`;
+    }
+    bar.style.width = "100%";
+    note.textContent = "下载完成，正在触发安装…";
+    const result = await triggerUpdate(done.path, done.filename);
+    wrap.hidden = true;
+    box.hidden = false;
+    box.className = "report " + (result.ok ? "ok" : "fail");
+    box.innerHTML =
+      `<div class="kv"><b>已下载</b>${escapeHtml(done.filename || "")}（${fmtSize(done.total)}）</div>` +
+      `<div class="kv"><b>${result.ok ? "安装" : "需手动安装"}</b>${escapeHtml(result.note)}</div>`;
+  } catch (exc) {
+    wrap.hidden = true;
+    box.hidden = false;
+    box.className = "report fail";
+    box.textContent = "更新失败：" + exc.message;
+  } finally {
+    dl.disabled = false;
+    dl.textContent = "下载并更新";
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 触发飞牛应用中心的安装（与 FnDepot 客户端同源同接口）：用 NAS 上的本地 fpk 建
+// 下载/解析任务 → 已装走 update、未装走 install → 轮询任务终态；失败回退手动安装。
+async function triggerUpdate(path, filename) {
   if (!path) {
-    return { ok: false, note: "安装包已下载到 NAS，但未能解析其在存储卷上的路径，请在「应用中心 → 手动安装」中选择对应机型安装包。" };
+    return { ok: false, note: `安装包已下载到 NAS，但未能解析其在存储卷上的路径，请在「应用中心 → 手动安装」选择该文件：${filename || ""}` };
   }
   try {
-    const resp = await fetch("/app-center/v1/download/task", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ packageSourceType: "file", path, immediateStart: true }),
+    const volId = await acVolumeId();
+    // 1) 以本地文件创建解析任务
+    const created = await acCall("/app-center/v1/download/task", "POST", {
+      packageSourceType: "file", path, immediateStart: true, volumeID: volId, language: "zh-CN",
     });
-    const body = await resp.json().catch(() => ({}));
-    if (resp.ok && body && body.code === 0) {
-      return { ok: true, note: "已提交飞牛应用中心安装任务，请稍候…" };
+    const dlId = pickTaskId(created.data);
+    if (!dlId) throw new Error("应用中心未返回下载任务号");
+    // 2) 轮询解析结果，拿到 appName / version / packageType
+    const pkg = await acWaitPackage(dlId);
+    if (!pkg || !pkg.appName) throw new Error("应用中心未解析出安装包");
+    const pkgType = pkg.packageType || "local";
+    // 3) 已安装 → 更新；未安装 → 安装
+    const installed = await acIsInstalled(pkg.appName);
+    if (installed) {
+      await acCall(`/app-center/v1/update/info?appName=${encodeURIComponent(pkg.appName)}&updateVersion=${encodeURIComponent(pkg.version)}&packageType=${pkgType}&language=zh-CN`, "GET");
+      const task = await acCall("/app-center/v1/update/task", "POST", {
+        appName: pkg.appName, packageType: pkgType, updateVersion: pkg.version, language: "zh-CN",
+      });
+      return await acWaitTask("/app-center/v1/update/status", pickTaskId(task.data), pkg);
     }
-    const why = !resp.ok ? `HTTP ${resp.status}` : `code ${body.code}${body.msg ? " " + body.msg : ""}`;
-    return { ok: false, note: `自动安装未成功（${why}），请在「应用中心 → 手动安装」选择该文件：${path}` };
+    await acCall(`/app-center/v1/install/info?appName=${encodeURIComponent(pkg.appName)}&version=${encodeURIComponent(pkg.version)}&packageType=${pkgType}&language=zh-CN`, "GET");
+    const task = await acCall("/app-center/v1/install/task", "POST", {
+      appName: pkg.appName, packageType: pkgType, version: pkg.version, language: "zh-CN",
+      systemParameters: { agreedToProtocol: true, installVolumeID: volId, dataVolumeId: volId, immediateStart: true },
+      customParameters: [],
+    });
+    return await acWaitTask("/app-center/v1/install/status", pickTaskId(task.data), pkg);
   } catch (exc) {
-    return { ok: false, note: `自动安装不可用（${exc.message}），请在「应用中心 → 手动安装」选择该文件：${path}` };
+    return { ok: false, note: `自动安装未成功（${exc.message}），请在「应用中心 → 手动安装」选择该文件：${filename || path}` };
   }
+}
+
+// 同源调用飞牛应用中心接口（桌面内页面携带登录态），统一解出业务码。
+async function acCall(path, method, body) {
+  const opts = { method: method || "GET", credentials: "include" };
+  if (body !== undefined) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(path, opts);
+  let data = null;
+  try { data = await resp.json(); } catch (_) { /* 非 JSON */ }
+  if (!resp.ok) throw new Error(`应用中心 HTTP ${resp.status}`);
+  if (data && typeof data.code !== "undefined" && data.code !== 0) {
+    throw new Error(`应用中心 code ${data.code}${data.msg ? " " + data.msg : ""}`);
+  }
+  return data || {};
+}
+
+function pickTaskId(data) {
+  const d = data || {};
+  return String(d.taskId || d.downloadTaskId || d.id || "");
+}
+
+async function acVolumeId() {
+  try {
+    const data = await acCall("/app-center/v1/sysconfig?language=zh-CN", "GET");
+    return Number((data.data || {}).volumeID) || 1;
+  } catch (_) {
+    return 1;
+  }
+}
+
+async function acWaitPackage(dlId) {
+  let last = null;
+  for (let i = 0; i < 60; i++) {
+    await sleep(1000);
+    const st = await acCall("/app-center/v1/download/status?downloadTaskId=" + encodeURIComponent(dlId) + "&language=zh-CN", "GET");
+    last = st.data || {};
+    if (last.appName) return last;
+  }
+  return last;
+}
+
+async function acIsInstalled(appName) {
+  try {
+    const data = await acCall("/app-center/v1/app/installed?language=zh-CN", "GET");
+    const list = ((data.data || {}).list) || [];
+    return list.some((a) => a && a.appName === appName);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function acWaitTask(statusPath, taskId, pkg) {
+  if (!taskId) throw new Error("应用中心未返回安装任务号");
+  for (let i = 0; i < 150; i++) {
+    await sleep(2000);
+    const st = await acCall(statusPath, "POST", { taskId });
+    const s = (st.data || {}).status;
+    if (s === 2 || s === 5) {
+      return { ok: true, note: `已提交应用中心，${pkg.appName} v${pkg.version} 安装完成。` };
+    }
+    if (s === 6 || s === 7) throw new Error("安装任务失败");
+  }
+  return { ok: false, note: "已提交安装任务但未在预期时间内完成，请到「应用中心」查看进度。" };
 }
 
 function fmtSize(bytes) {
@@ -1081,7 +1203,8 @@ function fmtSize(bytes) {
   return mb >= 1 ? mb.toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
 }
 
-$("#about-check").addEventListener("click", updateNow);
+$("#about-check").addEventListener("click", checkUpdate);
+$("#about-download").addEventListener("click", downloadAndUpdate);
 
 /* -------------------------------------------------------------- 启动 */
 (async function boot() {
