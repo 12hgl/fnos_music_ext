@@ -20,6 +20,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* 覆盖 .btn-row 等 display 规则，保证 hidden 生效 */
 html, body { margin: 0; padding: 0; min-height: 100%; }
 body {
   font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
