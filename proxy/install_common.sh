@@ -343,10 +343,6 @@ text = pathlib.Path(template).read_text(encoding="utf-8")
 for key, value in zip(("REPO", "VENV", "DATA", "RUN"), paths):
     # Both supervisor's interpolation and systemd's specifiers use percent.
     text = text.replace("@" + key + "@", value.replace("%", "%%"))
-if pathlib.Path(template).name == "supervisord-native.conf.in":
-    text = text.replace('WEBUI_SUPERVISORCTL="supervisorctl -c ',
-                        'WEBUI_SUPERVISORCTL="supervisorctl -c \'')
-    text = text.replace('/supervisord.conf"', '/supervisord.conf\'"')
 sys.stdout.write(text)
 PY
 }

@@ -6,7 +6,7 @@
 ;   2. 代码/数据直接指向宿主目录（@REPO@ / @DATA@），无容器内 /srv /repo /data 路径；
 ;   3. supervisor 经 .venv-sources 的 pip 包提供，套接字/pid/日志收在 @RUN@。
 ; 占位符由 proxy/install_common.sh 的 render_native_supervisor_conf 渲染。
-; 运行期切源 = supervisorctl stop/start（WebUI 经 WEBUI_SUPERVISORCTL 调用），与容器一致。
+; 运行期切源 = supervisorctl stop/start（WebUI 经 WEBUI_SUPERVISORCTL + WEBUI_SUPERVISOR_CONF 调用），与容器一致。
 
 [supervisord]
 nodaemon=true
@@ -91,4 +91,4 @@ killasgroup=true
 stdout_logfile=@RUN@/webui.log
 stdout_logfile_maxbytes=0
 redirect_stderr=true
-environment=WEBUI_REPO_DIR="@REPO@",WEBUI_MUSICDL_URL="http://127.0.0.1:8768",WEBUI_MUSICBOX_URL="http://127.0.0.1:8770",WEBUI_NETEASEFREE_URL="http://127.0.0.1:8776",WEBUI_LX_URL="http://127.0.0.1:8772",WEBUI_SUPERVISORCTL="supervisorctl -c @RUN@/supervisord.conf"
+environment=WEBUI_REPO_DIR="@REPO@",WEBUI_MUSICDL_URL="http://127.0.0.1:8768",WEBUI_MUSICBOX_URL="http://127.0.0.1:8770",WEBUI_NETEASEFREE_URL="http://127.0.0.1:8776",WEBUI_LX_URL="http://127.0.0.1:8772",WEBUI_SUPERVISORCTL="supervisorctl",WEBUI_SUPERVISOR_CONF="@RUN@/supervisord.conf"

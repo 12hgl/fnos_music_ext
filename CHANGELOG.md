@@ -6,6 +6,16 @@
 > **关于版本号**：自 v3.0.0 起，fnmusic-ext 采用独立版本号，避免与仓库内其他项目及上游（如 lxmusic-service 的 2.x）版本号混淆。
 > **发版规则**：默认只递增小版本（补丁位，`x.y.Z`）；如需递增中版本（`x.Y.z`），会在发版说明中明确指定。
 
+## [3.1.2] - 2026-10-18
+
+### 变更
+
+- **安装不再依赖 Docker**：应用中心安装 / 升级固定走原生（宿主机 systemd + supervisord）形态，无 Docker 环境也能直接安装；已有 Docker 部署在安装时自动迁移清理容器、共用同一份数据目录，升级/重装不丢数据。
+
+### 修复
+
+- **原生部署下管理台「概览」报 HTTP 500**：原生 supervisord 模板把配置路径写成 `WEBUI_SUPERVISORCTL="supervisorctl -c '…/supervisord.conf'"`，而 supervisor 解析 `environment=` 时会独立剥掉首尾引号字符，导致收尾单引号被吞、值变为 `… -c '…/supervisord.conf`，WebUI 侧 `shlex.split` 抛 `No closing quotation` 使 `/api/status` 返回 500。现把配置路径单列为 `WEBUI_SUPERVISOR_CONF`，WebUI 以列表参数追加 `-c <conf>`，不再经过 shell 分词。
+
 ## [3.1.1] - 2026-10-16
 
 ### 新增
@@ -35,7 +45,7 @@
 ### 修复（同步自上游原生部署相关修复）
 
 - **`unit_working_dir` 解析健壮性**：改用 `python3` 解析 unit 文件的 `WorkingDirectory`，正确处理引号与 systemd `%%` 转义，避免跨目录部署归属误判。
-- **原生模板渲染路径安全**：`render_native_placeholders` 校验路径不含换行/引号/反斜杠，并对 supervisord 配置内 `WEBUI_SUPERVISORCTL` 的嵌套引号做转义；WebUI 侧按 shell 词法拆分 `WEBUI_SUPERVISORCTL`（可携带 `-c <conf>` 参数）。
+- **原生模板渲染路径安全**：`render_native_placeholders` 校验路径不含换行/引号/反斜杠（跨 INI / shell argv / systemd 解析器都明确失败而非产出畸形配置）；WebUI 侧按 shell 词法拆分 `WEBUI_SUPERVISORCTL`，原生 supervisord 配置路径经独立的 `WEBUI_SUPERVISOR_CONF` 以列表参数传入。
 - **`.env` 原子写保留原属主**：`write_env_atomic` 在 root 运行 native 安装时保留既有 `.env` 的 uid/gid，避免属主变为 root 导致后续非 root 用户无法读写。
 
 ## [3.0.3] - 2026-10-11

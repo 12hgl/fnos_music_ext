@@ -614,6 +614,27 @@ def test_supervisor_status_connection_error_returns_empty(monkeypatch):
     assert webui.supervisor_status() == {}
 
 
+def test_supervisorctl_argv_native_conf_is_separate_element(monkeypatch):
+    """原生形态：conf 路径单独经 WEBUI_SUPERVISOR_CONF 传入，按列表元素追加。
+
+    含空格的路径也不能被 shell 分词拆散——supervisor 会吞掉 environment= 值里的
+    收尾引号，内联 "supervisorctl -c '...'" 的写法会让 shlex.split 抛
+    "No closing quotation"（原生部署下 /api/status 曾因此整页 500）。
+    """
+    monkeypatch.setitem(webui.CONF, "supervisorctl", "supervisorctl")
+    monkeypatch.setitem(webui.CONF, "supervisorctl_conf", "/vol1/My App/sources-native/supervisord.conf")
+    assert webui._supervisorctl_argv("status") == [
+        "supervisorctl", "-c", "/vol1/My App/sources-native/supervisord.conf", "status"]
+
+
+def test_supervisorctl_argv_legacy_inline_conf_still_works(monkeypatch):
+    """兜底：WEBUI_SUPERVISORCTL 仍可内联 '-c <conf>'（无引号的简单路径），默认裸命令不变。"""
+    monkeypatch.setitem(webui.CONF, "supervisorctl", "supervisorctl -c /etc/supervisor/supervisord.conf")
+    monkeypatch.setitem(webui.CONF, "supervisorctl_conf", "")
+    assert webui._supervisorctl_argv("status") == [
+        "supervisorctl", "-c", "/etc/supervisor/supervisord.conf", "status"]
+
+
 def test_status_aggregates_processes_and_health(env_file, svctl, monkeypatch):
     monkeypatch.setitem(webui.CONF, "musicdl_url", "http://md.test")
     monkeypatch.setitem(webui.CONF, "musicbox_url", "http://mb.test")
